@@ -389,3 +389,16 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     },
   },
 } satisfies DesktopBridge);
+
+contextBridge.exposeInMainWorld("argusDesktop", {
+  openSurface: (target: unknown, placement: unknown) =>
+    ipcRenderer.invoke("argus:open-surface", target, placement),
+  popOut: (target: unknown) => ipcRenderer.invoke("argus:pop-out", target),
+  dock: (target: unknown) => ipcRenderer.invoke("argus:dock", target),
+  openThreadWindow: (thread: unknown) => ipcRenderer.invoke("argus:open-thread", thread),
+  openTerminal: (target: unknown, placement?: unknown) =>
+    ipcRenderer.invoke("argus:open-terminal", target, placement),
+  syncView: (view: unknown) => ipcRenderer.invoke("argus:sync-view", view),
+  closeView: (id: unknown) => ipcRenderer.invoke("argus:close-view", id),
+});
+
