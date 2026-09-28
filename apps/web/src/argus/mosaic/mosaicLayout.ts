@@ -1,6 +1,8 @@
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { ModelSelection, ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
+import { clampFloatRect, type MosaicFloatRect } from "./mosaicFloat";
 import type { MosaicCompany, MosaicPane } from "./mosaicStore";
 import { collectPaneIds, type MosaicNode } from "./mosaicTree";
 
@@ -14,6 +16,12 @@ export interface MosaicLayoutDocument {
   readonly companies: ReadonlyArray<MosaicCompany>;
   readonly panes: Readonly<Record<string, MosaicPane>>;
   readonly root: MosaicNode | null;
+  /** Popped-out panes by pane id; each still holds its slot in `root`. */
+  readonly floating: Readonly<Record<string, MosaicFloatRect>>;
+  /** The model each shown thread was on at the last explicit save, by scoped thread key. */
+  readonly agents: Readonly<Record<string, ModelSelection>>;
+  /** When the user last pressed Save configuration (ISO time). */
+  readonly savedAt: string | null;
 }
 
 const MOSAIC_LAYOUT_VERSION = 1;
@@ -56,6 +64,14 @@ const MosaicPaneSchema = Schema.Union([
   }),
 ]);
 
+const FloatRectSchema = Schema.Struct({
+  x: Schema.Finite,
+  y: Schema.Finite,
+  width: Schema.Finite,
+  height: Schema.Finite,
+});
+
+// Fields after `root` were added within version 1, so documents without them still load.
 const MosaicLayoutDocumentSchema = Schema.Struct({
   version: Schema.Literal(MOSAIC_LAYOUT_VERSION),
   companies: Schema.Array(
@@ -69,17 +85,46 @@ const MosaicLayoutDocumentSchema = Schema.Struct({
   ),
   panes: Schema.Record(Schema.String, MosaicPaneSchema),
   root: Schema.NullOr(MosaicNodeSchema),
+  floating: Schema.optionalKey(Schema.Record(Schema.String, FloatRectSchema)),
+  agents: Schema.optionalKey(Schema.Record(Schema.String, ModelSelection)),
+  savedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 
 const decodeLayoutDocument = Schema.decodeUnknownOption(
   Schema.fromJsonString(MosaicLayoutDocumentSchema),
 );
 
+function sortedEntries<T>(
+  record: Readonly<Record<string, T>>,
+  keep: (key: string) => boolean,
+): Record<string, T> {
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(([key]) => keep(key))
+      .toSorted(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+/** Scoped keys of the server threads the grid shows. */
+function shownThreadKeys(layout: Pick<MosaicLayoutDocument, "panes" | "root">): Set<string> {
+  const keys = new Set<string>();
+  for (const paneId of collectPaneIds(layout.root)) {
+    const pane = layout.panes[paneId];
+    if (pane?.kind === "chat" && pane.target?.kind === "server") {
+      keys.add(scopedThreadKey(pane.target.threadRef));
+    }
+  }
+  return keys;
+}
+
 /**
  * Stable JSON for a layout; equal layouts serialize to equal strings. Composer
- * drafts live in one client's storage, so a pane holding a draft is saved empty.
+ * drafts live in one client's storage, so a pane holding a draft is saved empty
+ * and no draft text ever reaches the document.
  */
 export function serializeMosaicLayout(layout: MosaicLayoutDocument): string {
+  const paneIds = new Set(collectPaneIds(layout.root));
+  const threadKeys = shownThreadKeys(layout);
   return JSON.stringify({
     version: MOSAIC_LAYOUT_VERSION,
     companies: layout.companies,
@@ -92,7 +137,29 @@ export function serializeMosaicLayout(layout: MosaicLayoutDocument): string {
         ]),
     ),
     root: layout.root,
+    floating: sortedEntries(layout.floating, (paneId) => paneIds.has(paneId)),
+    agents: sortedEntries(layout.agents, (threadKey) => threadKeys.has(threadKey)),
+    savedAt: layout.savedAt,
   });
+}
+
+/**
+ * The model on every server thread the grid shows, for Save configuration.
+ * A thread this client has not loaded keeps the model recorded at the last save.
+ */
+export function captureThreadAgents(
+  layout: Pick<MosaicLayoutDocument, "panes" | "root" | "agents">,
+  readThreadModel: (threadRef: ScopedThreadRef) => ModelSelection | null,
+): Record<string, ModelSelection> {
+  const agents: Record<string, ModelSelection> = {};
+  for (const paneId of collectPaneIds(layout.root)) {
+    const pane = layout.panes[paneId];
+    if (pane?.kind !== "chat" || pane.target?.kind !== "server") continue;
+    const key = scopedThreadKey(pane.target.threadRef);
+    const model = readThreadModel(pane.target.threadRef) ?? layout.agents[key] ?? null;
+    if (model) agents[key] = model;
+  }
+  return agents;
 }
 
 /** A saved layout, keeping this client's own drafts in panes the saved copy shows empty. */
@@ -121,10 +188,18 @@ export function parseMosaicLayout(raw: string | null | undefined): MosaicLayoutD
   if (new Set(paneIds).size !== paneIds.length || paneIds.some((id) => panes[id]?.id !== id)) {
     return null;
   }
+  const reachable = new Set(paneIds);
   // Panes outside the tree are unreachable; drop them rather than carry them forever.
   return {
     companies,
     panes: Object.fromEntries(paneIds.map((id) => [id, panes[id]!])),
     root,
+    floating: Object.fromEntries(
+      Object.entries(decoded.value.floating ?? {})
+        .filter(([paneId]) => reachable.has(paneId))
+        .map(([paneId, rect]) => [paneId, clampFloatRect(rect)]),
+    ),
+    agents: decoded.value.agents ?? {},
+    savedAt: decoded.value.savedAt ?? null,
   };
 }

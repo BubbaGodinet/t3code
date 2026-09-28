@@ -1,9 +1,14 @@
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { DraftId } from "../../composerDraftStore";
 import {
+  captureThreadAgents,
   parseMosaicLayout,
   serializeMosaicLayout,
   withLocalDrafts,
@@ -14,6 +19,9 @@ import { buildPresetTree, resizeSplit, swapPanes } from "./mosaicTree";
 
 const environmentId = EnvironmentId.make("env");
 const draftId = "draft-1" as DraftId;
+const threadRef = scopeThreadRef(environmentId, ThreadId.make("t1"));
+const codex = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
+const claude = { instanceId: ProviderInstanceId.make("claude"), model: "claude-opus-4-8" };
 
 function layout(): MosaicLayoutDocument {
   let splits = 0;
@@ -22,7 +30,7 @@ function layout(): MosaicLayoutDocument {
       id: "chat",
       kind: "chat",
       companyId: "acme",
-      target: { kind: "server", threadRef: scopeThreadRef(environmentId, ThreadId.make("t1")) },
+      target: { kind: "server", threadRef },
     },
     { id: "draft", kind: "chat", companyId: null, target: { kind: "draft", draftId } },
     {
@@ -40,7 +48,7 @@ function layout(): MosaicLayoutDocument {
         name: "Acme",
         color: "#22c55e",
         projectRef: scopeProjectRef(environmentId, ProjectId.make("p1")),
-        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+        modelSelection: codex,
       },
     ],
     panes: Object.fromEntries(panes.map((pane) => [pane.id, pane])),
@@ -54,6 +62,9 @@ function layout(): MosaicLayoutDocument {
       0,
       15,
     ),
+    floating: { term: { x: 10, y: 20, width: 40, height: 30 } },
+    agents: { [scopedThreadKey(threadRef)]: claude },
+    savedAt: "2026-09-28T22:00:00.000Z",
   };
 }
 
@@ -66,6 +77,50 @@ describe("mosaic layout document", () => {
     expect(restored.panes.chat).toEqual(layout().panes.chat);
     expect(restored.panes.term).toEqual(layout().panes.term);
     expect(serializeMosaicLayout(restored)).toBe(saved);
+  });
+
+  it("saves floating windows, each thread's agent, and the save time", () => {
+    const restored = parseMosaicLayout(serializeMosaicLayout(layout()))!;
+    expect(restored.floating).toEqual(layout().floating);
+    expect(restored.agents).toEqual(layout().agents);
+    expect(restored.savedAt).toBe(layout().savedAt);
+  });
+
+  it("drops floating windows and agents for panes and threads no longer shown", () => {
+    const original = layout();
+    const saved = JSON.parse(
+      serializeMosaicLayout({
+        ...original,
+        floating: { ...original.floating, gone: { x: 0, y: 0, width: 30, height: 30 } },
+        agents: { ...original.agents, "env:elsewhere": codex },
+      }),
+    );
+    expect(Object.keys(saved.floating)).toEqual(["term"]);
+    expect(Object.keys(saved.agents)).toEqual([scopedThreadKey(threadRef)]);
+  });
+
+  it("never writes draft text or draft agents into the saved document", () => {
+    const saved = serializeMosaicLayout(layout());
+    expect(saved).not.toContain(draftId);
+    expect(JSON.parse(saved).panes.draft.target).toBeNull();
+  });
+
+  it("captures the live model of each shown thread, keeping the last one for unloaded threads", () => {
+    const live = captureThreadAgents(layout(), () => codex);
+    expect(live).toEqual({ [scopedThreadKey(threadRef)]: codex });
+    const unloaded = captureThreadAgents(layout(), () => null);
+    expect(unloaded).toEqual({ [scopedThreadKey(threadRef)]: claude });
+    expect(captureThreadAgents({ ...layout(), agents: {} }, () => null)).toEqual({});
+  });
+
+  it("loads documents saved before floating panes and agents existed", () => {
+    const saved = JSON.parse(serializeMosaicLayout(layout()));
+    delete saved.floating;
+    delete saved.agents;
+    delete saved.savedAt;
+    const restored = parseMosaicLayout(JSON.stringify(saved))!;
+    expect(restored).toMatchObject({ floating: {}, agents: {}, savedAt: null });
+    expect(restored.root).toEqual(layout().root);
   });
 
   it("saves a swap as a new layout", () => {

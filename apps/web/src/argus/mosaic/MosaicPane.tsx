@@ -5,6 +5,7 @@ import {
   Columns2Icon,
   GripVerticalIcon,
   MessageSquarePlusIcon,
+  PictureInPicture2Icon,
   Rows2Icon,
   SquareTerminalIcon,
   XIcon,
@@ -198,12 +199,20 @@ function TerminalPanePicker({ pane }: { pane: MosaicPane }) {
 export const MosaicPaneView = memo(function MosaicPaneView({
   paneId,
   active,
+  floating,
   onStartDrag,
+  onToggleFloat,
 }: {
   paneId: string;
   active: boolean;
-  /** Begins a drag-to-swap from the header grip; gutters stay dedicated to resizing. */
+  floating: boolean;
+  /**
+   * Begins a drag from the header grip: a docked pane swaps slots, a floating
+   * one moves. Gutters stay dedicated to resizing.
+   */
   onStartDrag: (paneId: string, event: ReactPointerEvent<HTMLElement>) => void;
+  /** Pops the pane out over the grid, or docks it back into its slot. */
+  onToggleFloat: (paneId: string) => void;
 }) {
   const pane = useMosaicStore((state) => state.panes[paneId]);
   const companies = useMosaicStore((state) => state.companies);
@@ -259,7 +268,7 @@ export const MosaicPaneView = memo(function MosaicPaneView({
       >
         <button
           type="button"
-          aria-label="Drag onto another pane to swap"
+          aria-label={floating ? "Drag to move" : "Drag onto another pane to swap"}
           className="flex h-5 shrink-0 cursor-grab touch-none items-center rounded text-muted-foreground hover:bg-accent active:cursor-grabbing"
           onPointerDown={(event) => onStartDrag(pane.id, event)}
         >
@@ -282,6 +291,17 @@ export const MosaicPaneView = memo(function MosaicPaneView({
             {agent}
           </span>
         ) : null}
+        <Button
+          aria-label={floating ? "Dock pane" : "Pop out pane"}
+          title={floating ? "Dock back into the grid" : "Pop out to a floating pane"}
+          aria-pressed={floating}
+          size="icon-micro"
+          variant="ghost-muted"
+          className={cn(floating && "bg-accent text-foreground")}
+          onClick={() => onToggleFloat(pane.id)}
+        >
+          <PictureInPicture2Icon />
+        </Button>
         <Button
           aria-label="Split right"
           size="icon-micro"

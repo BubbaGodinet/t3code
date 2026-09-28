@@ -6,6 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { randomUUID } from "../../lib/utils";
 import { resolveStorage } from "../../lib/storage";
 import type { ThreadRouteTarget } from "../../threadRoutes";
+import { initialFloatRect, type MosaicFloatRect } from "./mosaicFloat";
 import type { MosaicLayoutDocument } from "./mosaicLayout";
 import {
   buildPresetTree,
@@ -17,6 +18,7 @@ import {
   type MosaicDirection,
   type MosaicNode,
   type MosaicPreset,
+  type MosaicRect,
 } from "./mosaicTree";
 
 /** A named workspace with one repository (T3 project), one default agent, and a color. */
@@ -69,6 +71,9 @@ interface MosaicLayoutSnapshot {
 interface MosaicStoreState extends MosaicLayoutSnapshot {
   enabled: boolean;
   companies: ReadonlyArray<MosaicCompany>;
+  floating: Readonly<Record<string, MosaicFloatRect>>;
+  agents: MosaicLayoutDocument["agents"];
+  savedAt: string | null;
   setEnabled: (enabled: boolean) => void;
   applyPreset: (preset: MosaicPreset) => void;
   addPane: (
@@ -80,6 +85,10 @@ interface MosaicStoreState extends MosaicLayoutSnapshot {
   swapPanes: (firstPaneId: string, secondPaneId: string) => void;
   applyLayout: (layout: MosaicLayoutDocument) => void;
   setActivePane: (paneId: string | null) => void;
+  /** Pops a pane out over its grid slot, or docks it back when it already floats. */
+  toggleFloating: (paneId: string, slot: MosaicRect) => void;
+  setFloatingRect: (paneId: string, rect: MosaicFloatRect) => void;
+  recordSave: (agents: MosaicLayoutDocument["agents"], savedAt: string) => void;
   setPaneTarget: (paneId: string, target: ThreadRouteTarget | null) => void;
   setPaneCompany: (paneId: string, companyId: string | null) => void;
   upsertCompany: (company: MosaicCompany) => void;
@@ -102,6 +111,18 @@ function createPane(kind: MosaicPaneKind, companyId: string | null): MosaicPane 
         sessionThreadId: `argus-terminal-${id}`,
         terminalId: "default",
       };
+}
+
+export function toggleFloatingPane(
+  floating: Readonly<Record<string, MosaicFloatRect>>,
+  paneId: string,
+  slot: MosaicRect,
+): Readonly<Record<string, MosaicFloatRect>> {
+  if (floating[paneId]) {
+    const { [paneId]: _docked, ...rest } = floating;
+    return rest;
+  }
+  return { ...floating, [paneId]: initialFloatRect(slot, Object.keys(floating).length) };
 }
 
 /**
@@ -159,6 +180,9 @@ export const useMosaicStore = create<MosaicStoreState>()(
     (set, get) => ({
       enabled: false,
       companies: [],
+      floating: {},
+      agents: {},
+      savedAt: null,
       panes: {},
       root: null,
       activePaneId: null,
@@ -211,9 +235,10 @@ export const useMosaicStore = create<MosaicStoreState>()(
         set((state) => {
           const root = removePane(state.root, paneId);
           const { [paneId]: _removed, ...panes } = state.panes;
+          const { [paneId]: _floating, ...floating } = state.floating;
           const activePaneId =
             state.activePaneId === paneId ? (collectPaneIds(root)[0] ?? null) : state.activePaneId;
-          return { root, panes, activePaneId };
+          return { root, panes, floating, activePaneId };
         }),
       resize: (splitId, index, deltaPercent) =>
         set((state) => ({ root: resizeSplit(state.root, splitId, index, deltaPercent) })),
@@ -224,12 +249,22 @@ export const useMosaicStore = create<MosaicStoreState>()(
           companies: layout.companies,
           panes: layout.panes,
           root: layout.root,
+          floating: layout.floating,
+          agents: layout.agents,
+          savedAt: layout.savedAt,
           activePaneId:
             state.activePaneId !== null && layout.panes[state.activePaneId]
               ? state.activePaneId
               : (collectPaneIds(layout.root)[0] ?? null),
         })),
       setActivePane: (paneId) => set({ activePaneId: paneId }),
+      toggleFloating: (paneId, slot) =>
+        set((state) => ({ floating: toggleFloatingPane(state.floating, paneId, slot) })),
+      setFloatingRect: (paneId, rect) =>
+        set((state) =>
+          state.floating[paneId] ? { floating: { ...state.floating, [paneId]: rect } } : state,
+        ),
+      recordSave: (agents, savedAt) => set({ agents, savedAt }),
       setPaneTarget: (paneId, target) =>
         set((state) => {
           const pane = state.panes[paneId];
@@ -273,6 +308,9 @@ export const useMosaicStore = create<MosaicStoreState>()(
         companies: state.companies,
         panes: state.panes,
         root: state.root,
+        floating: state.floating,
+        agents: state.agents,
+        savedAt: state.savedAt,
         activePaneId: state.activePaneId,
       }),
     },

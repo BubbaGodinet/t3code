@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
+import { ArgusModeSwitcher } from "../../argus/ArgusModeSwitcher";
+import { useArgusCommandCenter } from "../../argus/argusCommandCenter";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
@@ -37,12 +39,13 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  const backdropVariant = resolveSidebarStageBackdropVariant(
-    stageLabel,
-    environmentIdentificationMode === "artwork",
-  );
+  // The Argus command center shows its mode switcher here instead of T3 branding and artwork.
+  const commandCenter = useArgusCommandCenter();
+  const backdropVariant = commandCenter
+    ? null
+    : resolveSidebarStageBackdropVariant(stageLabel, environmentIdentificationMode === "artwork");
   const pillLabel =
-    environmentIdentificationMode === "pill"
+    !commandCenter && environmentIdentificationMode === "pill"
       ? resolveEnvironmentIdentificationPillLabel(stageLabel)
       : null;
 
@@ -62,7 +65,11 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           backdropVariant && resolveSidebarStageFocusRingOffsetClass(backdropVariant),
         )}
       />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
+      {commandCenter ? (
+        <ArgusModeSwitcher className="relative z-10 ml-[var(--workspace-titlebar-content-left)]" />
+      ) : (
+        <SidebarBrand onBackdrop={backdropVariant !== null} />
+      )}
       {pillLabel ? (
         <Badge
           className="relative z-10 ml-1 hidden rounded-full px-1.5 text-muted-foreground @[15rem]/sidebar-header:inline-flex"
