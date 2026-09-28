@@ -1246,6 +1246,13 @@ export const ServerSettings = Schema.Struct({
   argusMosaicLayout: Schema.NullOr(Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /**
+   * Named Argus mosaic configurations the user saved and can switch between,
+   * as one opaque JSON document owned by the web client, like `argusMosaicLayout`.
+   */
+  argusMosaicConfigs: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -1519,6 +1526,7 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),
   ),
   argusMosaicLayout: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  argusMosaicConfigs: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

@@ -1,35 +1,21 @@
 import { useAtomValue } from "@effect/atom-react";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { useCallback, useEffect, useEffectEvent, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 
 import { useUpdatePrimarySettings } from "../../hooks/useSettings";
-import { readThreadShell } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
-import { useAtomCommand } from "../../state/use-atom-command";
 import type { ThreadRouteTarget } from "../../threadRoutes";
-import {
-  captureThreadAgents,
-  parseMosaicLayout,
-  serializeMosaicLayout,
-  withLocalDrafts,
-} from "./mosaicLayout";
+import { parseMosaicLayout, serializeMosaicLayout, withLocalDrafts } from "./mosaicLayout";
 import { useMosaicStore } from "./mosaicStore";
 
 const SAVE_DEBOUNCE_MS = 500;
 
-export type MosaicSaveResult =
-  | { readonly ok: true; readonly savedAt: string }
-  | { readonly ok: false; readonly message: string };
-
 /**
- * Keeps the mosaic in the primary server's settings so every client of that
- * server shares one layout. localStorage stays a cache for the first paint.
- * The first server copy wins over the cache; with none saved yet, this
- * client's cached layout becomes the saved one.
- *
- * Returns `saveNow` for Save configuration: it records each shown thread's
- * model, writes the layout immediately, and resolves once the server accepts it.
+ * Keeps the live mosaic in the primary server's settings so every client of
+ * that server shares one layout. localStorage stays a cache for the first
+ * paint. The first server copy wins over the cache; with none saved yet, this
+ * client's cached layout becomes the saved one. Named configurations are
+ * separate (`useMosaicConfigs`).
  */
 export function useMosaicLayoutSync(routeTarget: ThreadRouteTarget) {
   const environmentId = usePrimaryEnvironmentId();
@@ -40,9 +26,6 @@ export function useMosaicLayoutSync(routeTarget: ThreadRouteTarget) {
   const remote = useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings
     .argusMosaicLayout;
   const updateSettings = useUpdatePrimarySettings();
-  const persistSettings = useAtomCommand(serverEnvironment.updateSettings, {
-    reportFailure: false,
-  });
   const save = useEffectEvent((layout: string) => updateSettings({ argusMosaicLayout: layout }));
   /** The last server value handled here, including this client's own writes. */
   const lastRemoteRef = useRef<string | null | undefined>(undefined);
@@ -103,35 +86,4 @@ export function useMosaicLayoutSync(routeTarget: ThreadRouteTarget) {
       }
     };
   }, [environmentId]);
-
-  const saveNow = useCallback(async (): Promise<MosaicSaveResult> => {
-    if (environmentId === null || !hydratedRef.current) {
-      return { ok: false, message: "The server has not loaded the grid yet." };
-    }
-    const savedAt = new Date().toISOString();
-    const store = useMosaicStore.getState();
-    store.recordSave(
-      captureThreadAgents(store, (threadRef) => readThreadShell(threadRef)?.modelSelection ?? null),
-      savedAt,
-    );
-    const next = serializeMosaicLayout(useMosaicStore.getState());
-    syncedRef.current = next;
-    lastRemoteRef.current = next;
-    const result = await persistSettings({
-      environmentId,
-      input: { patch: { argusMosaicLayout: next } },
-    });
-    if (result._tag === "Failure") {
-      // Let the next change retry through the debounced save.
-      syncedRef.current = null;
-      const error = squashAtomCommandFailure(result);
-      return {
-        ok: false,
-        message: error instanceof Error ? error.message : "The server rejected the save.",
-      };
-    }
-    return { ok: true, savedAt };
-  }, [environmentId, persistSettings]);
-
-  return { saveNow, ready: environmentId !== null && remote !== undefined };
 }

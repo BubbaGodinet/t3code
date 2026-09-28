@@ -1,4 +1,5 @@
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import type { ModelSelection } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 
@@ -78,13 +79,13 @@ export function useMosaicActions() {
   );
 
   /**
-   * Moves the chat in `pane` onto the company's agent: a draft takes it in its
-   * composer, a server thread through `thread.meta.update` like T3's model picker.
+   * Moves the chat in `pane` onto `agent`: a draft takes it in its composer, a
+   * server thread through `thread.meta.update` like T3's model picker. `source`
+   * names where the agent came from in toasts, e.g. "Acme's agent".
    */
-  const applyCompanyAgent = useCallback(
-    async (pane: MosaicPane, company: MosaicCompany) => {
-      const agent = company.modelSelection;
-      if (pane.kind !== "chat" || pane.target === null || agent === null) return;
+  const applyPaneAgent = useCallback(
+    async (pane: MosaicPane, agent: ModelSelection, source: string) => {
+      if (pane.kind !== "chat" || pane.target === null) return;
       const drafts = useComposerDraftStore.getState();
       if (pane.target.kind === "draft") {
         drafts.setModelSelection(pane.target.draftId, agent, {
@@ -123,7 +124,7 @@ export function useMosaicActions() {
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: `Could not switch to ${company.name}'s agent`,
+            title: `Could not switch to ${source}`,
             description: error instanceof Error ? error.message : "The server rejected the change.",
           }),
         );
@@ -135,7 +136,7 @@ export function useMosaicActions() {
           stackedThreadToast({
             type: "info",
             title: `Switched to ${plan.modelSelection.model}`,
-            description: `This thread started on another provider, so it keeps that provider and uses ${company.name}'s model.`,
+            description: `This thread started on another provider, so it keeps that provider and uses the model from ${source}.`,
           }),
         );
       }
@@ -143,5 +144,13 @@ export function useMosaicActions() {
     [updateThreadMetadata],
   );
 
-  return { focusPane, closePane, openTarget, applyCompanyAgent };
+  const applyCompanyAgent = useCallback(
+    async (pane: MosaicPane, company: MosaicCompany) => {
+      if (company.modelSelection === null) return;
+      await applyPaneAgent(pane, company.modelSelection, `${company.name}'s agent`);
+    },
+    [applyPaneAgent],
+  );
+
+  return { focusPane, closePane, openTarget, applyPaneAgent, applyCompanyAgent };
 }

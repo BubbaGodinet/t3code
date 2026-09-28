@@ -1,9 +1,7 @@
 import {
   BuildingIcon,
-  CheckIcon,
   MessageSquarePlusIcon,
   PictureInPicture2Icon,
-  SaveIcon,
   SquareTerminalIcon,
   XIcon,
 } from "lucide-react";
@@ -19,7 +17,6 @@ import {
 
 import { Button } from "../../components/ui/button";
 import { SidebarInset } from "../../components/ui/sidebar";
-import { stackedThreadToast, toastManager } from "../../components/ui/toast";
 import { WorkspacePageHeader } from "../../components/WorkspacePageHeader";
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -33,12 +30,14 @@ import {
   isMosaicInteracting,
   isOverlayOpen,
 } from "./hoverActivation";
+import { ConfigurationSwitcher, SaveConfigurationButton } from "./MosaicConfigControls";
 import { moveFloatRect, resizeFloatRect } from "./mosaicFloat";
 import { MosaicPaneView } from "./MosaicPane";
 import { routeTargetKey, useMosaicStore } from "./mosaicStore";
 import { layoutMosaic, type MosaicDivider, type MosaicPreset } from "./mosaicTree";
 import { useMosaicActions } from "./useMosaicActions";
-import { useMosaicLayoutSync, type MosaicSaveResult } from "./useMosaicLayoutSync";
+import { useMosaicConfigs } from "./useMosaicConfigs";
+import { useMosaicLayoutSync } from "./useMosaicLayoutSync";
 
 const PRESETS: ReadonlyArray<{ preset: MosaicPreset; label: string; title: string }> = [
   { preset: "row", label: "Row", title: "All panes side by side" },
@@ -49,7 +48,6 @@ const PRESETS: ReadonlyArray<{ preset: MosaicPreset; label: string; title: strin
 
 /** Half the gap between panes, in px; panes inset by this so dividers sit in the gutter. */
 const GUTTER = 3;
-const SAVED_CONFIRMATION_MS = 2500;
 
 /**
  * Runs a pointer drag captured on `handle`, reporting movement in container
@@ -247,57 +245,6 @@ function useHoverActivation() {
   );
 }
 
-function SaveConfigurationButton({
-  saveNow,
-  ready,
-}: {
-  saveNow: () => Promise<MosaicSaveResult>;
-  ready: boolean;
-}) {
-  const savedAt = useMosaicStore((state) => state.savedAt);
-  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
-
-  useEffect(() => {
-    if (status !== "saved") return;
-    const timer = setTimeout(() => setStatus("idle"), SAVED_CONFIRMATION_MS);
-    return () => clearTimeout(timer);
-  }, [status]);
-
-  const onClick = async () => {
-    setStatus("saving");
-    const result = await saveNow();
-    if (result.ok) {
-      setStatus("saved");
-      return;
-    }
-    setStatus("idle");
-    toastManager.add(
-      stackedThreadToast({
-        type: "error",
-        title: "Configuration not saved",
-        description: result.message,
-      }),
-    );
-  };
-
-  return (
-    <Button
-      size="xs"
-      variant={status === "saved" ? "outline" : "default"}
-      disabled={!ready || status === "saving"}
-      title={
-        savedAt
-          ? `Last saved ${new Date(savedAt).toLocaleString()}`
-          : "Save the grid, panes, companies, and each thread's agent"
-      }
-      onClick={() => void onClick()}
-    >
-      {status === "saved" ? <CheckIcon /> : <SaveIcon />}
-      {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : "Save configuration"}
-    </Button>
-  );
-}
-
 /**
  * The pane mosaic that replaces the single chat view while enabled. Panes are
  * absolutely positioned from the split tree so reshaping the layout, or
@@ -315,7 +262,8 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
   const layout = useMemo(() => layoutMosaic(root), [root]);
   const { drag, startDrag } = usePaneDrag(containerRef);
   const hover = useHoverActivation();
-  const { saveNow, ready } = useMosaicLayoutSync(routeTarget);
+  useMosaicLayoutSync(routeTarget);
+  const { configs, ready, saveConfig, loadConfig } = useMosaicConfigs();
 
   const toggleFloat = useCallback(
     (paneId: string) => {
@@ -381,7 +329,8 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
           </Button>
         </div>
         <div className="flex items-center gap-1 [-webkit-app-region:no-drag]">
-          <SaveConfigurationButton saveNow={saveNow} ready={ready} />
+          <ConfigurationSwitcher configs={configs} loadConfig={loadConfig} />
+          <SaveConfigurationButton configs={configs} ready={ready} saveConfig={saveConfig} />
           <Button size="xs" variant="ghost-muted" onClick={() => setEnabled(false)}>
             <XIcon />
             Exit grid
