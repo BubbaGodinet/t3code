@@ -263,6 +263,14 @@ export const useMosaicStore = create<MosaicStoreState>()(
   ),
 );
 
+// The Argus command center frames T3 with `?argus=grid` so COMMAND opens straight into the mosaic.
+if (
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("argus") === "grid"
+) {
+  useMosaicStore.getState().setEnabled(true);
+}
+
 /** A chat pane takes its company from its thread's project when one matches, else its own pick. */
 export function resolvePaneCompany(
   companies: ReadonlyArray<MosaicCompany>,
