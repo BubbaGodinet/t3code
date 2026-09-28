@@ -201,7 +201,7 @@ export function useArgusMode(): ArgusMode | null {
 
 /**
  * The Argus command-center view: the pane grid, in-app Sanctuary, or any page
- * framed by Argus. Its chrome carries the Argus mode switcher instead of T3 Code branding.
+ * framed by Argus. It drops T3 Code branding for the Argus mode pill at the window's top center.
  */
 export function useArgusCommandCenter(): boolean {
   return useArgusMode() !== null;

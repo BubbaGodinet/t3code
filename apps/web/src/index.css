@@ -76,6 +76,99 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* Argus Command <-> Sanctuary (argusModeTransition.ts). The mode pill is lifted
+   out of both snapshots and held above them, live, so it never moves; its knob
+   has already slid by the time the space changes. */
+html[data-argus-mode-transition] .argus-mode-pill {
+  view-transition-name: argus-mode-pill;
+}
+
+html[data-argus-mode-transition]::view-transition-group(argus-mode-pill) {
+  z-index: 3;
+  animation: none;
+}
+
+html[data-argus-mode-transition]::view-transition-old(argus-mode-pill) {
+  display: none;
+}
+
+html[data-argus-mode-transition]::view-transition-new(argus-mode-pill) {
+  animation: none;
+}
+
+/* Command melts away, sagging and blurring as it fades, onto Sanctuary
+   already sitting beneath it. */
+html[data-argus-mode-transition="melt"]::view-transition-old(root) {
+  z-index: 1;
+  transform-origin: top center;
+  animation: argus-command-melt 520ms cubic-bezier(0.55, 0, 0.75, 0.25) both;
+  mix-blend-mode: normal;
+}
+
+html[data-argus-mode-transition="melt"]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+@keyframes argus-command-melt {
+  from {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(5%) scaleY(1.06);
+    filter: blur(8px);
+  }
+}
+
+/* Sanctuary's two halves part down the middle onto Command, which is already
+   live behind them. */
+html[data-argus-mode-transition="split"] .argus-sanctuary-left {
+  view-transition-name: argus-sanctuary-left;
+  box-shadow: 12px 0 24px -16px rgb(0 0 0 / 0.45);
+}
+
+html[data-argus-mode-transition="split"] .argus-sanctuary-right {
+  view-transition-name: argus-sanctuary-right;
+  box-shadow: -12px 0 24px -16px rgb(0 0 0 / 0.45);
+}
+
+html[data-argus-mode-transition="split"]::view-transition-old(root) {
+  animation: none;
+  opacity: 0;
+}
+
+html[data-argus-mode-transition="split"]::view-transition-new(root) {
+  animation: none;
+}
+
+html[data-argus-mode-transition="split"]::view-transition-group(argus-sanctuary-left),
+html[data-argus-mode-transition="split"]::view-transition-group(argus-sanctuary-right) {
+  z-index: 2;
+}
+
+html[data-argus-mode-transition="split"]::view-transition-old(argus-sanctuary-left) {
+  animation: argus-sanctuary-split-left 560ms cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+html[data-argus-mode-transition="split"]::view-transition-old(argus-sanctuary-right) {
+  animation: argus-sanctuary-split-right 560ms cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+@keyframes argus-sanctuary-split-left {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes argus-sanctuary-split-right {
+  to {
+    transform: translateX(100%);
+  }
+}
+
 :root {
   --app-scrollbar-width: 6px;
   --appearance-contrast-base: 100%;
