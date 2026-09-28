@@ -3,8 +3,9 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ModelSelection, ProviderInstanceId, ScopedProjectRef } from "@t3tools/contracts";
+import type { ProviderDriverKind, ProviderInstanceId, ScopedProjectRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { useNavigate } from "@tanstack/react-router";
 import { FolderOpenIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { create } from "zustand";
@@ -29,16 +30,19 @@ import {
   resolveProjectPathForDispatch,
 } from "../../lib/projectPaths";
 import { newProjectId, randomUUID } from "../../lib/utils";
-import {
-  deriveProviderInstanceEntries,
-  getDefaultProviderInstanceModel,
-} from "../../providerInstances";
 import { useProjects, waitForProject } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { filesystemEnvironment } from "../../state/filesystem";
 import { projectEnvironment } from "../../state/projects";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import {
+  companyAccountEntries,
+  companyAccountLabel,
+  driverLabel,
+  preferredCompanyAccount,
+  selectCompanyAccount,
+} from "./companyAgent";
 import { COMPANY_COLOR_PALETTE, useMosaicStore, type MosaicCompany } from "./mosaicStore";
 
 export const useCompaniesDialog = create<{ open: boolean; setOpen: (open: boolean) => void }>()(
@@ -199,9 +203,21 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
   const providers = company.projectRef
     ? (serverConfigs.get(company.projectRef.environmentId)?.providers ?? [])
     : [];
-  const providerEntries = deriveProviderInstanceEntries(providers).filter(
-    (entry) => entry.enabled && entry.installed,
+  const setDialogOpen = useCompaniesDialog((state) => state.setOpen);
+  const navigate = useNavigate();
+  const accountEntries = companyAccountEntries(providers);
+  const drivers = [...new Set(accountEntries.map((entry) => entry.driverKind))];
+  const currentAccount = accountEntries.find(
+    (entry) => entry.instanceId === company.modelSelection?.instanceId,
   );
+  const currentDriver =
+    currentAccount?.driverKind ??
+    providers.find((provider) => provider.instanceId === company.modelSelection?.instanceId)
+      ?.driver ??
+    null;
+  const driverAccounts = currentDriver
+    ? accountEntries.filter((entry) => entry.driverKind === currentDriver)
+    : [];
   const update = (patch: Partial<MosaicCompany>) => upsertCompany({ ...company, ...patch });
 
   return (
@@ -289,30 +305,84 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
           aria-label="Agent"
           className={SELECT_CLASS}
           disabled={company.projectRef === null}
-          value={company.modelSelection?.instanceId ?? ""}
+          value={currentDriver ?? ""}
           onChange={(event) => {
-            const instanceId = event.target.value as ProviderInstanceId;
-            const model = instanceId
-              ? getDefaultProviderInstanceModel(providers, instanceId)
-              : undefined;
-            const modelSelection: ModelSelection | null =
-              instanceId && model ? { instanceId, model } : null;
-            update({ modelSelection });
+            const driver = event.target.value as ProviderDriverKind;
+            const account = driver ? preferredCompanyAccount(accountEntries, driver) : undefined;
+            update({
+              modelSelection: account
+                ? selectCompanyAccount(providers, null, account.instanceId)
+                : null,
+            });
           }}
         >
           <option value="">Project default</option>
-          {providerEntries.map((entry) => (
-            <option key={entry.instanceId} value={entry.instanceId}>
-              {entry.displayName}
+          {currentDriver && !drivers.includes(currentDriver) ? (
+            <option value={currentDriver}>{driverLabel(currentDriver)} (unavailable)</option>
+          ) : null}
+          {drivers.map((driver) => (
+            <option key={driver} value={driver}>
+              {driverLabel(driver)}
             </option>
           ))}
         </select>
       </div>
+      {currentDriver ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="w-12 shrink-0">Account</span>
+          <select
+            aria-label="Account"
+            className={SELECT_CLASS}
+            value={company.modelSelection?.instanceId ?? ""}
+            onChange={(event) =>
+              update({
+                modelSelection: selectCompanyAccount(
+                  providers,
+                  company.modelSelection,
+                  event.target.value as ProviderInstanceId,
+                ),
+              })
+            }
+          >
+            {company.modelSelection && !currentAccount ? (
+              <option value={company.modelSelection.instanceId}>
+                {company.modelSelection.instanceId} (not configured)
+              </option>
+            ) : null}
+            {driverAccounts.map((entry) => (
+              <option key={entry.instanceId} value={entry.instanceId}>
+                {companyAccountLabel(entry)}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (!company.projectRef) return;
+              setDialogOpen(false);
+              void navigate({
+                to: "/settings/providers",
+                search: { environmentId: company.projectRef.environmentId },
+              });
+            }}
+          >
+            <PlusIcon />
+            Add account
+          </Button>
+        </div>
+      ) : null}
+      {currentDriver && driverAccounts.length < 2 ? (
+        <p className="ps-14 text-xs text-muted-foreground">
+          Only one {driverLabel(currentDriver)} account is signed in. Add another in Settings ›
+          Providers, then pick it here.
+        </p>
+      ) : null}
     </div>
   );
 }
 
-/** Add, rename, recolor, and bind companies to a repository and a default agent. */
+/** Add, rename, recolor, and bind companies to a repository, agent, and provider account. */
 export function CompaniesDialog() {
   const open = useCompaniesDialog((state) => state.open);
   const setOpen = useCompaniesDialog((state) => state.setOpen);
@@ -339,7 +409,8 @@ export function CompaniesDialog() {
         <DialogHeader>
           <DialogTitle>Companies</DialogTitle>
           <DialogDescription>
-            Each company has one repository, a default agent for new chats, and a pane color.
+            Each company has one repository, a default agent and signed-in account for new chats,
+            and a pane color.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto text-sm">

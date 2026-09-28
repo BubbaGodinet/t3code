@@ -131,14 +131,8 @@ export function useMosaicActions() {
         return;
       }
       drafts.setModelSelection(threadRef, plan.modelSelection, { explicit: true });
-      if (plan.keptProvider) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "info",
-            title: `Switched to ${plan.modelSelection.model}`,
-            description: `This thread started on another provider, so it keeps that provider and uses the model from ${source}.`,
-          }),
-        );
+      if (plan.notice) {
+        toastManager.add(stackedThreadToast({ type: "info", ...plan.notice }));
       }
     },
     [updateThreadMetadata],
