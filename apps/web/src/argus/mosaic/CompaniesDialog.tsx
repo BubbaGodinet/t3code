@@ -1,7 +1,11 @@
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
+import type { ModelSelection, ProviderInstanceId, ScopedProjectRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { FolderOpenIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { create } from "zustand";
 
@@ -15,13 +19,24 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
-import { randomUUID } from "../../lib/utils";
+import { stackedThreadToast, toastManager } from "../../components/ui/toast";
+import { readLocalApi } from "../../localApi";
+import {
+  findProjectByPath,
+  inferProjectTitleFromPath,
+  isExplicitRelativeProjectPath,
+  resolveProjectPathForDispatch,
+} from "../../lib/projectPaths";
+import { newProjectId, randomUUID } from "../../lib/utils";
 import {
   deriveProviderInstanceEntries,
   getDefaultProviderInstanceModel,
 } from "../../providerInstances";
-import { useProjects } from "../../state/entities";
+import { useProjects, waitForProject } from "../../state/entities";
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { projectEnvironment } from "../../state/projects";
 import { environmentServerConfigsAtom } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { COMPANY_COLOR_PALETTE, useMosaicStore, type MosaicCompany } from "./mosaicStore";
 
 export const useCompaniesDialog = create<{ open: boolean; setOpen: (open: boolean) => void }>()(
@@ -30,6 +45,118 @@ export const useCompaniesDialog = create<{ open: boolean; setOpen: (open: boolea
 
 const SELECT_CLASS =
   "h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm text-foreground";
+
+function showRepositoryError(description: string) {
+  toastManager.add(
+    stackedThreadToast({ type: "error", title: "Could not use repository", description }),
+  );
+}
+
+/**
+ * Binds a company to any local directory on the primary environment. Reuses the
+ * T3 project already rooted there, otherwise registers one via `project.create`.
+ * Typed paths work in every client; Browse opens the native picker on desktop.
+ */
+function CompanyRepositoryPathForm(props: {
+  readonly onAssign: (projectRef: ScopedProjectRef) => void;
+}) {
+  const projects = useProjects();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
+  const [path, setPath] = useState("");
+  const [pending, setPending] = useState(false);
+  const canPickFolder = typeof window !== "undefined" && window.desktopBridge !== undefined;
+
+  const assignPath = async (rawPath: string) => {
+    if (primaryEnvironmentId === null) {
+      showRepositoryError("No local T3 server is connected.");
+      return;
+    }
+    if (isExplicitRelativeProjectPath(rawPath.trim())) {
+      showRepositoryError("Enter an absolute path, e.g. ~/code/my-repo.");
+      return;
+    }
+    const workspaceRoot = resolveProjectPathForDispatch(rawPath);
+    if (workspaceRoot.length === 0) return;
+
+    const existing = findProjectByPath(
+      projects.filter((project) => project.environmentId === primaryEnvironmentId),
+      workspaceRoot,
+    );
+    if (existing) {
+      props.onAssign(scopeProjectRef(existing.environmentId, existing.id));
+      setPath("");
+      return;
+    }
+
+    setPending(true);
+    const projectId = newProjectId();
+    const result = await createProject({
+      environmentId: primaryEnvironmentId,
+      input: {
+        projectId,
+        title: inferProjectTitleFromPath(workspaceRoot),
+        workspaceRoot,
+        createWorkspaceRootIfMissing: false,
+        defaultModelSelection: null,
+      },
+    });
+    setPending(false);
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        showRepositoryError(error instanceof Error ? error.message : "The folder was rejected.");
+      }
+      return;
+    }
+    const projectRef = scopeProjectRef(primaryEnvironmentId, projectId);
+    // Let the shell stream deliver the project so the select resolves its label.
+    await waitForProject(projectRef, 3_000).catch(() => null);
+    props.onAssign(projectRef);
+    setPath("");
+  };
+
+  const browse = async () => {
+    const picked = await readLocalApi()
+      ?.dialogs.pickFolder(path.trim() ? { initialPath: path.trim() } : undefined)
+      .catch(() => null);
+    if (picked) await assignPath(picked);
+  };
+
+  return (
+    <form
+      className="flex items-center gap-2 text-xs text-muted-foreground"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void assignPath(path);
+      }}
+    >
+      <span className="w-12 shrink-0" />
+      <Input
+        aria-label="Repository folder path"
+        value={path}
+        onChange={(event) => setPath(event.target.value)}
+        placeholder="Any local folder, e.g. ~/code/my-repo"
+        disabled={pending}
+      />
+      {canPickFolder ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={pending}
+          onClick={() => void browse()}
+        >
+          <FolderOpenIcon />
+          Browse
+        </Button>
+      ) : null}
+      <Button type="submit" size="sm" disabled={pending || path.trim().length === 0}>
+        Use
+      </Button>
+    </form>
+  );
+}
 
 function CompanyRow({ company }: { company: MosaicCompany }) {
   const upsertCompany = useMosaicStore((state) => state.upsertCompany);
@@ -115,6 +242,14 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
           })}
         </select>
       </div>
+      <CompanyRepositoryPathForm
+        onAssign={(projectRef) => {
+          const latest = useMosaicStore
+            .getState()
+            .companies.find((entry) => entry.id === company.id);
+          if (latest) upsertCompany({ ...latest, projectRef, modelSelection: null });
+        }}
+      />
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="w-12 shrink-0">Agent</span>
         <select
