@@ -662,9 +662,13 @@ export const make = Effect.gen(function* () {
       }
     });
 
-    window.on("page-title-updated", (event) => {
+    // Only the app's own titles (ARGUS, ARGUS Command, ARGUS Sanctuary) reach the window;
+    // anything else, such as a dev server's placeholder, falls back to the display name.
+    window.on("page-title-updated", (event, title) => {
       event.preventDefault();
-      window.setTitle(environment.displayName);
+      window.setTitle(
+        title.startsWith(environment.branding.baseName) ? title : environment.displayName,
+      );
     });
     window.on("resize", scheduleBoundsPersist);
     window.on("move", scheduleBoundsPersist);
@@ -739,7 +743,10 @@ export const make = Effect.gen(function* () {
       }
       clearDevelopmentLoadRetry();
       developmentLoadRetryIndex = 0;
-      window.setTitle(environment.displayName);
+      const pageTitle = window.webContents.getTitle();
+      window.setTitle(
+        pageTitle.startsWith(environment.branding.baseName) ? pageTitle : environment.displayName,
+      );
       if (environment.platform === "darwin") syncMacosWindowButtons(window);
     });
     window.webContents.on(

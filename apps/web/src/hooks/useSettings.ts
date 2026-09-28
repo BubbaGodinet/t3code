@@ -356,12 +356,14 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
   );
   const activeTheme = resolveThemeHalf(theme, themeHalves, resolvedTheme);
   const activeThemeDefinition = getThemeDefinition(activeTheme);
-  return resolveEnvironmentIdentificationMode({
+  const resolved = resolveEnvironmentIdentificationMode({
     mode,
     settingsHydrated,
     paletteThemeActive: previewSidebarArtwork !== null || activeThemeDefinition !== null,
     paletteThemeAllowsArtwork: previewSidebarArtwork ?? themeAllowsSidebarArtwork(activeTheme),
   });
+  // ARGUS ships no stage artwork; a saved "artwork" choice shows the version pill.
+  return resolved === "artwork" ? "pill" : resolved;
 }
 
 /**

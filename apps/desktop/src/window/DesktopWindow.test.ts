@@ -76,6 +76,7 @@ function makeFakeBrowserWindow() {
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
     getURL: vi.fn(() => "t3code-dev://app/"),
+    getTitle: vi.fn(() => "ARGUS Command"),
     getZoomLevel: vi.fn(() => zoomLevel),
     getZoomFactor: vi.fn(() => 1.2 ** zoomLevel),
     setZoomLevel: vi.fn((level: number) => {
@@ -1483,7 +1484,7 @@ describe("DesktopWindow", () => {
         createCount,
         mainWindow,
         onReveal: () => {
-          foreground = "T3 Code";
+          foreground = "ARGUS";
           operations.push("reveal");
         },
       });
@@ -1492,7 +1493,7 @@ describe("DesktopWindow", () => {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
         yield* desktopWindow.dispatchSnapShotEvent({ type: "started", id: captureOne });
-        assert.equal(foreground, "T3 Code");
+        assert.equal(foreground, "ARGUS");
         foreground = "Explorer";
         yield* desktopWindow.dispatchSnapShotEvent({ type: "ready", id: captureOne });
         yield* desktopWindow.dispatchSnapShotEvent({ type: "failed", id: captureTwo });

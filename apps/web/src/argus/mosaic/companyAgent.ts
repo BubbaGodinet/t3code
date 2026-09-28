@@ -85,7 +85,7 @@ export function planCompanyAgentForThread(input: {
   const currentLabel = providerLabel(current, currentDriver ?? String(currentInstanceId));
   const stays = {
     title: `This thread stays on ${currentLabel}`,
-    description: `T3 cannot move a started thread to ${providerLabel(next, String(companyAgent.instanceId))}. New chats in this company use it.`,
+    description: `ARGUS cannot move a started thread to ${providerLabel(next, String(companyAgent.instanceId))}. New chats in this company use it.`,
   };
   // Same model on a locked account still differs from the company's account, so say so.
   if (candidate === null || (keptProvider && isCurrent(candidate))) {

@@ -1319,15 +1319,23 @@ export function AppearanceSettingsPanel() {
                   aria-label="Environment identification"
                 >
                   <SelectValue>
-                    {ENVIRONMENT_IDENTIFICATION_LABELS[settings.environmentIdentificationMode]}
+                    {
+                      ENVIRONMENT_IDENTIFICATION_LABELS[
+                        settings.environmentIdentificationMode === "artwork"
+                          ? "pill"
+                          : settings.environmentIdentificationMode
+                      ]
+                    }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {Object.entries(ENVIRONMENT_IDENTIFICATION_LABELS).map(([value, label]) => (
-                    <SelectItem hideIndicator key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
+                  {Object.entries(ENVIRONMENT_IDENTIFICATION_LABELS)
+                    .filter(([value]) => value !== "artwork")
+                    .map(([value, label]) => (
+                      <SelectItem hideIndicator key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
                 </SelectPopup>
               </Select>
             }
@@ -3217,7 +3225,7 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("open-source-licenses")}
-          description="Notices for dependencies, assets, and optional tools used by T3 Code."
+          description="Notices for dependencies, assets, and optional tools used by ARGUS."
           control={
             <Button
               render={<Link to="/settings/open-source-licenses" />}

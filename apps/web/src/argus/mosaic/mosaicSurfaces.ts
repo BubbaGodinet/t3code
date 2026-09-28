@@ -37,7 +37,7 @@ export function surfacePlacementOptions(input: {
 }): ReadonlyArray<MosaicPlacementOption> {
   const runtimeReason =
     input.kind === "browser" && !input.browserSupported
-      ? "The browser needs the T3 Code desktop app."
+      ? "The browser needs the ARGUS desktop app."
       : null;
   const chatReason =
     input.source?.kind !== "thread"

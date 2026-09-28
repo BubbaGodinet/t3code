@@ -119,7 +119,7 @@ function HostedStaticOnboardingState() {
   const description = localEnvironmentOff
     ? "The local environment is turned off. Connect a remote environment, or turn the local environment back on in Connections."
     : cloudEnabled
-      ? "Enable T3 Connect on that machine, then open Connections here to sign in with the same account. You can also add the machine using a pairing link."
+      ? "Enable Connect on that machine, then open Connections here to sign in with the same account. You can also add the machine using a pairing link."
       : "Open Connections and add that machine using its pairing link. This app must be able to reach it.";
 
   return (
@@ -140,10 +140,10 @@ function HostedStaticOnboardingState() {
                 <LinkIcon className="size-5" />
               </div>
               <EmptyTitle className="text-foreground text-xl">
-                Connect to a computer running T3 Code
+                Connect to a computer running ARGUS
               </EmptyTitle>
               <EmptyDescription className="mt-2 text-sm leading-relaxed text-muted-foreground/78">
-                This app connects to T3 Code running on your computer or a server. Start the T3 Code
+                This app connects to ARGUS running on your computer or a server. Start the ARGUS
                 desktop app or command-line server on that machine and keep it running.
               </EmptyDescription>
               <EmptyDescription className="mt-2 text-sm leading-relaxed text-muted-foreground/78">

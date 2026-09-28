@@ -63,7 +63,7 @@ import { getDriverOption } from "../settings/providerDriverMeta";
 import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
 import { ClaudeAI, OpenAI } from "../Icons";
-import { T3Wordmark } from "../T3Wordmark";
+import { StudioMark } from "../StudioMark";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -189,12 +189,12 @@ export function WelcomeWizard({
         initialFocus={() => document.getElementById("onboarding-pairing-url") ?? true}
       >
         <WizardHeader
-          title="Set up T3 Code"
+          title="Set up ARGUS"
           identity={
-            <div className="flex items-baseline gap-1.5" role="img" aria-label="T3 Code">
-              <T3Wordmark className="h-4 w-auto shrink-0" aria-hidden />
-              <span className="text-[1.4rem] font-medium tracking-tight text-muted-foreground">
-                Code
+            <div className="flex items-center gap-2" role="img" aria-label="ARGUS">
+              <StudioMark brand className="h-5 w-auto shrink-0" aria-hidden />
+              <span className="text-[1.1rem] font-semibold tracking-[0.18em] text-muted-foreground">
+                ARGUS
               </span>
             </div>
           }
@@ -441,7 +441,7 @@ function ConnectAccountOption({
         }
       >
         <CloudIcon className="size-4 text-muted-foreground" />
-        <span className="flex-1">T3 Connect</span>
+        <span className="flex-1">Connect</span>
         <span className="text-xs text-muted-foreground">
           {!isLoaded
             ? "Loading sign-in…"
@@ -477,7 +477,7 @@ function ConnectAccountOption({
           </p>
           <CommandBlock command="npx t3 connect" className="mt-3" />
           <p className="mt-3 text-xs text-muted-foreground">
-            Keep T3 Code running. Select the computers you want to set up above.
+            Keep ARGUS running. Select the computers you want to set up above.
           </p>
         </div>
       </CollapsiblePanel>
@@ -594,7 +594,7 @@ function PairingForm({
             </p>
             <CommandBlock command="npx t3 pair" className="mt-2" />
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Start T3 Code first, or run <code className="font-mono">npx t3 serve</code>. Add{" "}
+              Start ARGUS first, or run <code className="font-mono">npx t3 serve</code>. Add{" "}
               <code className="font-mono">--tailscale</code> to use your tailnet.
             </p>
           </CollapsiblePanel>

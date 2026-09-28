@@ -16,8 +16,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { ARGUS_SANCTUARY_PATH, useArgusMode } from "../argus/argusCommandCenter";
 import { ArgusModePillHost } from "../argus/ArgusModeSwitcher";
-import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
-import { resolveServerBackedAppDisplayName } from "../branding.logic";
+import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
@@ -114,7 +113,7 @@ export const Route = createRootRoute({
   errorComponent: RootRouteErrorView,
   notFoundComponent: RootRouteNotFoundView,
   head: () => ({
-    meta: [{ name: "title", content: APP_DISPLAY_NAME }],
+    meta: [{ name: "title", content: APP_BASE_NAME }],
   }),
 });
 
@@ -324,21 +323,16 @@ function FontAppearanceSync() {
 }
 
 function DocumentTitleSync() {
-  const primaryServerVersion =
-    useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
-  const title = resolveServerBackedAppDisplayName({
-    baseName: APP_BASE_NAME,
-    fallbackDisplayName: APP_DISPLAY_NAME,
-    fallbackStageLabel: APP_STAGE_LABEL,
-    primaryServerVersion,
-  });
-
   const argusMode = useArgusMode();
 
   useEffect(() => {
     document.title =
-      argusMode === "sanctuary" ? "ARGUS Sanctuary" : argusMode ? "ARGUS Command" : title;
-  }, [argusMode, title]);
+      argusMode === "sanctuary"
+        ? `${APP_BASE_NAME} Sanctuary`
+        : argusMode
+          ? `${APP_BASE_NAME} Command`
+          : APP_BASE_NAME;
+  }, [argusMode]);
 
   return null;
 }

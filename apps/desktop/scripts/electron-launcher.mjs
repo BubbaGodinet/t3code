@@ -1,4 +1,4 @@
-// This file mostly exists because we want dev mode to say "T3 Code (Dev)" instead of "electron"
+// This file mostly exists because we want dev mode to say "ARGUS (Dev)" instead of "electron"
 
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -15,7 +15,8 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? "ARGUS (Dev)" : "ARGUS (Alpha)";
+const LEGACY_APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
 const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
   : "com.t3tools.t3code";
@@ -176,11 +177,20 @@ export function writeDevelopmentLauncherScript(targetBinaryPath, electronBinaryP
   return true;
 }
 
+const LSREGISTER_PATH =
+  "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+
+// The bundle used to carry the T3 Code name under the same bundle id and URL schemes.
+// Unregister it (a running copy may still use its files) so links reach this bundle.
+function unregisterLegacyMacLauncherBundle(runtimeDir) {
+  const legacyAppBundlePath = NodePath.join(runtimeDir, `${LEGACY_APP_DISPLAY_NAME}.app`);
+  if (!NodeFS.existsSync(legacyAppBundlePath)) return;
+  NodeChildProcess.spawnSync(LSREGISTER_PATH, ["-u", legacyAppBundlePath], { encoding: "utf8" });
+}
+
 function registerMacLauncherBundle(appBundlePath) {
-  runChecked(
-    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-    ["-f", appBundlePath],
-  );
+  unregisterLegacyMacLauncherBundle(NodePath.dirname(appBundlePath));
+  runChecked(LSREGISTER_PATH, ["-f", appBundlePath]);
 
   if (!isDevelopment) {
     return;
@@ -270,8 +280,8 @@ export function resolveMacBundleInfoPlistStrings(executableName) {
     CFBundleExecutable: executableName,
     CFBundleIconFile: "icon.icns",
     NSScreenCaptureUsageDescription:
-      "T3 Code captures the active window when you use the snapshot shortcut.",
-    NSDocumentsFolderUsageDescription: "T3 Code reads project files you open in the desktop app.",
+      "ARGUS captures the active window when you use the snapshot shortcut.",
+    NSDocumentsFolderUsageDescription: "ARGUS reads project files you open in the desktop app.",
   };
 }
 

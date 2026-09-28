@@ -178,7 +178,7 @@ describe("company accounts", () => {
       kind: "blocked",
       title: "This thread stays on Claude",
       description:
-        "T3 cannot move a started thread to Claude DoorDash. New chats in this company use it.",
+        "ARGUS cannot move a started thread to Claude DoorDash. New chats in this company use it.",
     });
   });
 

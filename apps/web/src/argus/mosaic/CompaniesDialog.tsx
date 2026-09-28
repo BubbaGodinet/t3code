@@ -92,7 +92,7 @@ function CompanyRepositoryPathForm(props: {
 
   const assignPath = async (rawPath: string) => {
     if (primaryEnvironmentId === null) {
-      showRepositoryError("No local T3 server is connected.");
+      showRepositoryError("No local ARGUS server is connected.");
       return;
     }
     if (isExplicitRelativeProjectPath(rawPath.trim())) {

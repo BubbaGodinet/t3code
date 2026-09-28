@@ -7,7 +7,7 @@ import { useArgusCommandCenter } from "../../argus/argusCommandCenter";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
-import { T3Wordmark } from "../T3Wordmark";
+import { StudioMark } from "../StudioMark";
 import {
   resolveEnvironmentIdentificationPillLabel,
   resolveSidebarStageBackdropVariant,
@@ -38,7 +38,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  // The Argus command center drops T3 branding and artwork; its mode pill floats at the window's top center.
+  // The Argus command center drops the brand and stage artwork; its mode pill floats at the window's top center.
   const commandCenter = useArgusCommandCenter();
   const backdropVariant = commandCenter
     ? null
@@ -90,16 +90,9 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
       to="/"
     >
       {/* Center the visible capitals, without the font's ascender/descender space. */}
-      <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
-        <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
-        <span
-          className={cn(
-            "truncate [text-box:trim-both_cap_alphabetic]",
-            onBackdrop ? "text-white/70" : "text-muted-foreground",
-          )}
-        >
-          Code
-        </span>
+      <span className="inline-flex min-w-0 items-baseline gap-1.5 text-sm font-semibold tracking-[0.18em]">
+        <StudioMark brand aria-hidden className="h-[1.1em] w-auto shrink-0 self-center" />
+        <span className="truncate [text-box:trim-both_cap_alphabetic]">ARGUS</span>
       </span>
     </Link>
   );
