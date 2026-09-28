@@ -44,7 +44,20 @@ import { resolveThreadSyncPhase } from "../threadSync";
  * Rendered by the `_chat` layout rather than by the two leaf routes, since
  * an element only survives a route swap when the same parent renders it.
  */
-export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
+export function ThreadRouteView({
+  target,
+  embedded = false,
+  onTargetChange,
+}: {
+  target: ThreadRouteTarget;
+  /** Fill a mosaic pane instead of the full-height inset. */
+  embedded?: boolean;
+  /**
+   * Given to panes that do not own the route: promotion and missing-thread
+   * handling retarget the pane instead of navigating.
+   */
+  onTargetChange?: (next: ThreadRouteTarget | null) => void;
+}) {
   const navigate = useNavigate();
   const draftId = target.kind === "draft" ? target.draftId : null;
   const draftSession = useComposerDraftStore((store) =>
@@ -139,6 +152,10 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       if (cancelled) {
         return;
       }
+      if (onTargetChange) {
+        onTargetChange({ kind: "server", threadRef: canonicalThreadRef });
+        return;
+      }
       void navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(canonicalThreadRef),
@@ -148,14 +165,18 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     return () => {
       cancelled = true;
     };
-  }, [canonicalThreadRef, navigate]);
+  }, [canonicalThreadRef, navigate, onTargetChange]);
 
   useEffect(() => {
     if (target.kind !== "draft" || draftSession || canonicalThreadRef) {
       return;
     }
+    if (onTargetChange) {
+      onTargetChange(null);
+      return;
+    }
     void navigate({ to: "/", replace: true });
-  }, [canonicalThreadRef, draftSession, navigate, target.kind]);
+  }, [canonicalThreadRef, draftSession, navigate, onTargetChange, target.kind]);
 
   useEffect(() => {
     if (target.kind !== "server" || !bootstrapComplete) {
@@ -167,11 +188,13 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     if (renderState === "missing") {
       const { clearPendingFileDropsForThread } = useSidebarPendingFileDropStore.getState();
       clearPendingFileDropsForThread(target.threadRef);
-      if (environmentHasAnyThreads) {
+      if (onTargetChange) {
+        onTargetChange(null);
+      } else if (environmentHasAnyThreads) {
         void navigate({ to: "/", replace: true });
       }
     }
-  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, target]);
+  }, [bootstrapComplete, environmentHasAnyThreads, navigate, onTargetChange, renderState, target]);
 
   useEffect(() => {
     if (target.kind !== "server" || !serverThreadStarted || !draftThread) {
@@ -203,6 +226,14 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
         routeKind="server"
         threadSyncPhase={threadSyncPhase}
       />
+    );
+  }
+
+  if (embedded) {
+    return (
+      <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background text-foreground">
+        {view}
+      </div>
     );
   }
 

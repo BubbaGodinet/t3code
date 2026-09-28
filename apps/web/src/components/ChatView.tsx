@@ -481,6 +481,8 @@ import {
 import type { ThreadSyncPhase } from "../threadSync";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
+import { useChatPane } from "../argus/mosaic/chatPaneContext";
+import { MosaicEnterButton } from "../argus/mosaic/MosaicEnterButton";
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
@@ -1582,6 +1584,8 @@ export default function ChatView(props: ChatViewProps) {
       },
     };
   }, [routeKind, routeThreadRef, routeThreadState]);
+  const { active: isActivePane } = useChatPane();
+  const readIsActivePane = useEffectEvent(() => isActivePane);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const settings = useEnvironmentSettings(environmentId);
   const setStickyComposerModelSelection = useComposerDraftStore(
@@ -5508,6 +5512,7 @@ export default function ChatView(props: ChatViewProps) {
         // DOM focus on body, so these keys must also be heard at document.
         const handleKeyDown = (event: KeyboardEvent) => {
           if (
+            !readIsActivePane() ||
             !(event.target instanceof Node) ||
             (!scrollNode.contains(event.target) &&
               event.target !== document.body &&
@@ -5731,7 +5736,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeThread?.id, routeThreadKey]);
 
   useEffect(() => {
-    if (!activeThread?.id || terminalUiState.terminalOpen) return;
+    if (!activeThread?.id || terminalUiState.terminalOpen || !readIsActivePane()) return;
     const frame = window.requestAnimationFrame(() => {
       focusComposer();
     });
@@ -5756,6 +5761,7 @@ export default function ChatView(props: ChatViewProps) {
       frame = window.requestAnimationFrame(() => {
         frame = window.requestAnimationFrame(() => {
           frame = null;
+          if (!readIsActivePane()) return;
           if (shouldRefocusComposerOnWindowFocus(document.activeElement)) focusComposer();
         });
       });
@@ -6661,6 +6667,7 @@ export default function ChatView(props: ChatViewProps) {
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
+      if (!readIsActivePane()) return;
       if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
         event.stopPropagation();
         return;
@@ -6950,6 +6957,7 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     const keyHandler = (event: KeyboardEvent) => {
       if (
+        readIsActivePane() &&
         shouldRedirectInputToComposer(event) &&
         isPasteAsTextShortcut(event, isMacPlatform(navigator.platform))
       ) {
@@ -6957,7 +6965,7 @@ export default function ChatView(props: ChatViewProps) {
       }
     };
     const handler = (event: ClipboardEvent) => {
-      if (!activeThreadId || isCommandPaletteOpen()) return;
+      if (!activeThreadId || isCommandPaletteOpen() || !readIsActivePane()) return;
       if (getTerminalFocusOwner() !== null) return;
       if (composerRef.current?.isModelPickerOpen()) return;
       const text = pasteTextToFocusComposer(event);
@@ -9581,7 +9589,10 @@ export default function ChatView(props: ChatViewProps) {
           />
         </span>
       ) : null}
-      <div className="pointer-events-auto flex h-full items-center">{panelToggleControls}</div>
+      <div className="pointer-events-auto flex h-full items-center">
+        <MosaicEnterButton />
+        {panelToggleControls}
+      </div>
     </div>
   );
   const rightPanelContent = activeThreadRef ? (

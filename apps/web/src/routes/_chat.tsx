@@ -4,6 +4,8 @@ import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { ThreadRouteView } from "../components/ThreadRouteView";
+import { ChatMosaic } from "../argus/mosaic/ChatMosaic";
+import { useMosaicStore } from "../argus/mosaic/mosaicStore";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
@@ -183,10 +185,19 @@ function ChatRouteLayout() {
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
   });
+  const mosaicEnabled = useMosaicStore((state) => state.enabled);
   return (
     <>
       <ChatRouteGlobalShortcuts />
-      {threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />}
+      {threadTarget ? (
+        mosaicEnabled ? (
+          <ChatMosaic routeTarget={threadTarget} />
+        ) : (
+          <ThreadRouteView target={threadTarget} />
+        )
+      ) : (
+        <Outlet />
+      )}
     </>
   );
 }
