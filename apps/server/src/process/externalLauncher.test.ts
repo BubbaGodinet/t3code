@@ -29,6 +29,7 @@ const windowsHost = HostProcessPlatform.defaultValue() === "win32";
 interface MockSpawnResult {
   readonly exitCode?: number;
   readonly stdout?: string;
+  readonly stderr?: string;
   /** Never deliver an exit code, like a child wedged on a broken desktop session. */
   readonly stall?: boolean;
 }
@@ -50,7 +51,10 @@ function makeMockDetachedHandle(input: MockSpawnResult & { readonly onUnref?: ()
       input.stdout === undefined
         ? Stream.empty
         : Stream.make(new TextEncoder().encode(input.stdout)),
-    stderr: Stream.empty,
+    stderr:
+      input.stderr === undefined
+        ? Stream.empty
+        : Stream.make(new TextEncoder().encode(input.stderr)),
     all: Stream.empty,
     getInputFd: () => Sink.drain,
     getOutputFd: () => Stream.empty,
@@ -1210,3 +1214,76 @@ it.effect("rejects unknown editors through the service API", () =>
     assert.equal(error.message, "Unknown editor: missing-editor");
   }).pipe(Effect.provide(testLayer({ platform: "linux", env: { PATH: "" } }))),
 );
+
+it.effect("picks a folder through the macOS dialog, starting at an existing directory", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const initialDirectory = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pick-" });
+
+    let spawned: ChildProcess.StandardCommand | undefined;
+    const picked = yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      return yield* launcher.pickFolder({ initialPath: initialDirectory });
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "darwin",
+          onSpawn: (command) => {
+            spawned = command;
+          },
+          spawnResult: () => ({ stdout: "/Users/me/code/my repo/\n" }),
+        }),
+      ),
+    );
+
+    assert.equal(picked, "/Users/me/code/my repo");
+    assert.ok(spawned);
+    assert.equal(spawned.command, "osascript");
+    // The initial folder is a script argument, never part of the script text.
+    assert.equal(spawned.args.at(-1), initialDirectory);
+    assert.equal(spawned.args.at(-2), "end run");
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("drops a missing initial folder and resolves null when the dialog is cancelled", () => {
+  let spawned: ChildProcess.StandardCommand | undefined;
+  return Effect.gen(function* () {
+    const launcher = yield* ExternalLauncher.ExternalLauncher;
+    const picked = yield* launcher.pickFolder({ initialPath: "/definitely/not/a/t3/folder" });
+    assert.equal(picked, null);
+    assert.ok(spawned);
+    assert.equal(spawned.args.at(-1), "end run");
+  }).pipe(
+    Effect.provide(
+      testLayer({
+        platform: "darwin",
+        onSpawn: (command) => {
+          spawned = command;
+        },
+        spawnResult: () => ({
+          exitCode: 1,
+          stderr: "execution error: User canceled. (-128)\n",
+        }),
+      }),
+    ),
+  );
+});
+
+it.effect("refuses the native folder picker on non-macOS hosts without spawning", () => {
+  let didSpawn = false;
+  return Effect.gen(function* () {
+    const launcher = yield* ExternalLauncher.ExternalLauncher;
+    const error = yield* launcher.pickFolder({}).pipe(Effect.flip);
+    assert.equal(error._tag, "FilesystemPickFolderError");
+    assert.equal(didSpawn, false);
+  }).pipe(
+    Effect.provide(
+      testLayer({
+        platform: "linux",
+        onSpawn: () => {
+          didSpawn = true;
+        },
+      }),
+    ),
+  );
+});

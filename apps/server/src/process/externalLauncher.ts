@@ -14,8 +14,10 @@ import {
   ExternalLauncherEditorSpawnError,
   ExternalLauncherUnknownEditorError,
   ExternalLauncherUnsupportedEditorError,
+  FilesystemPickFolderError,
   type EditorId,
   type FileManagerRevealKind,
+  type FilesystemPickFolderInput,
   type LaunchEditorInput,
 } from "@t3tools/contracts";
 import { resolveEditorCommand } from "@t3tools/shared/editor";
@@ -34,6 +36,8 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+
+import { expandHomePathWith } from "../pathExpansion.ts";
 
 // ==============================
 // Definitions
@@ -498,6 +502,14 @@ export class ExternalLauncher extends Context.Service<
      * Launches the editor as a detached process so server startup is not blocked.
      */
     readonly launchEditor: (input: LaunchEditorInput) => Effect.Effect<void, ExternalLauncherError>;
+    /**
+     * Show the host's native folder dialog and resolve the chosen absolute
+     * path, or null on cancel. The dialog opens on the host's screen, so this
+     * is only useful to clients running on the same machine. macOS only.
+     */
+    readonly pickFolder: (
+      input: FilesystemPickFolderInput,
+    ) => Effect.Effect<string | null, FilesystemPickFolderError>;
   }
 >()("t3/process/externalLauncher") {}
 
@@ -742,6 +754,93 @@ const launchEditorProcess = Effect.fn("externalLauncher.launchEditorProcess")(fu
   );
 });
 
+// A person is browsing; the bound only reaps a dialog nobody will answer.
+const PICK_FOLDER_TIMEOUT = "10 minutes";
+
+// osascript exits 1 with "User canceled. (-128)" when the dialog is dismissed.
+const APPLESCRIPT_USER_CANCELED_PATTERN = /\(-128\)/;
+
+// The initial folder arrives as argv, never interpolated into the script.
+const MACOS_PICK_FOLDER_SCRIPT = [
+  "on run argv",
+  "activate",
+  "if (count of argv) > 0 then",
+  'return POSIX path of (choose folder with prompt "Choose a folder" default location (POSIX file (item 1 of argv)))',
+  "end if",
+  'return POSIX path of (choose folder with prompt "Choose a folder")',
+  "end run",
+] as const;
+
+const pickFolder = Effect.fn("externalLauncher.pickFolder")(function* (
+  input: FilesystemPickFolderInput,
+): Effect.fn.Return<
+  string | null,
+  FilesystemPickFolderError,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> {
+  const platform = yield* HostProcessPlatform;
+  if (platform !== "darwin") {
+    return yield* new FilesystemPickFolderError({
+      message: "The native folder picker is only available on macOS hosts.",
+    });
+  }
+
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const initialPath =
+    input.initialPath === undefined
+      ? undefined
+      : path.resolve(expandHomePathWith(input.initialPath, path));
+  // `choose folder` errors on a missing default location instead of ignoring it.
+  const initialDirectory =
+    initialPath !== undefined &&
+    (yield* fileSystem.stat(initialPath).pipe(
+      Effect.map((info) => info.type === "Directory"),
+      Effect.orElseSucceed(() => false),
+    ))
+      ? initialPath
+      : undefined;
+
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const args = [
+    ...MACOS_PICK_FOLDER_SCRIPT.flatMap((line) => ["-e", line]),
+    ...(initialDirectory === undefined ? [] : [initialDirectory]),
+  ];
+  const [stdout, stderr, exitCode] = yield* spawner
+    .spawn(ChildProcess.make("osascript", args, { stdin: "ignore" }))
+    .pipe(
+      Effect.flatMap((handle) =>
+        Effect.all(
+          [
+            handle.stdout.pipe(Stream.decodeText(), Stream.mkString),
+            handle.stderr.pipe(Stream.decodeText(), Stream.mkString),
+            handle.exitCode,
+          ],
+          { concurrency: "unbounded" },
+        ),
+      ),
+      Effect.scoped,
+      Effect.timeout(PICK_FOLDER_TIMEOUT),
+      Effect.mapError(
+        (cause) =>
+          new FilesystemPickFolderError({
+            message: "Failed to open the native folder picker.",
+            cause,
+          }),
+      ),
+    );
+
+  if (exitCode !== 0) {
+    if (APPLESCRIPT_USER_CANCELED_PATTERN.test(stderr)) return null;
+    return yield* new FilesystemPickFolderError({
+      message: stderr.trim() || `The native folder picker exited with code ${exitCode}.`,
+    });
+  }
+  // POSIX paths of folders end in "/"; project roots are stored without it.
+  const picked = stdout.replace(/\n$/, "").replace(/(.)\/+$/, "$1");
+  return picked.length === 0 ? null : picked;
+});
+
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -792,6 +891,10 @@ export const make = Effect.gen(function* () {
       provideCommandResolutionServices(
         Effect.flatMap(resolveEditorLaunch(input), launchEditorProcess),
       ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+    pickFolder: (input) =>
+      provideCommandResolutionServices(pickFolder(input)).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      ),
   });
 });
 

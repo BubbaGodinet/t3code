@@ -27,6 +27,9 @@ import {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
   FilesystemBrowseError,
+  FilesystemPickFolderError,
+  FilesystemPickFolderInput,
+  FilesystemPickFolderResult,
 } from "./filesystem.ts";
 import {
   AgentSessionImportInput,
@@ -288,6 +291,7 @@ export const WS_METHODS = {
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
+  filesystemPickFolder: "filesystem.pickFolder",
   agentSessionsScan: "agentSessions.scan",
   agentSessionsImport: "agentSessions.import",
   assetsCreateUrl: "assets.createUrl",
@@ -956,6 +960,13 @@ const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   error: Schema.Union([FilesystemBrowseError, EnvironmentAuthorizationError]),
 });
 
+/** Opens a native folder dialog on the environment host, for clients on that machine. */
+const WsFilesystemPickFolderRpc = Rpc.make(WS_METHODS.filesystemPickFolder, {
+  payload: FilesystemPickFolderInput,
+  success: FilesystemPickFolderResult,
+  error: Schema.Union([FilesystemPickFolderError, EnvironmentAuthorizationError]),
+});
+
 const WsAgentSessionsScanRpc = Rpc.make(WS_METHODS.agentSessionsScan, {
   payload: AgentSessionScanInput,
   success: AgentSessionScanResult,
@@ -1460,6 +1471,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
+  WsFilesystemPickFolderRpc,
   WsAgentSessionsScanRpc,
   WsAgentSessionsImportRpc,
   WsAssetsCreateUrlRpc,

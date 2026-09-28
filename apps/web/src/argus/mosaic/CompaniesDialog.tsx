@@ -20,6 +20,7 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { stackedThreadToast, toastManager } from "../../components/ui/toast";
+import { isLoopbackHostname } from "../../environments/primary";
 import { readLocalApi } from "../../localApi";
 import {
   findProjectByPath,
@@ -34,6 +35,7 @@ import {
 } from "../../providerInstances";
 import { useProjects, waitForProject } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { filesystemEnvironment } from "../../state/filesystem";
 import { projectEnvironment } from "../../state/projects";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -55,17 +57,29 @@ function showRepositoryError(description: string) {
 /**
  * Binds a company to any local directory on the primary environment. Reuses the
  * T3 project already rooted there, otherwise registers one via `project.create`.
- * Typed paths work in every client; Browse opens the native picker on desktop.
+ * Typed paths work in every client. Browse opens the native picker on desktop,
+ * and in a browser on the server's own Mac it asks the server to show one.
  */
 function CompanyRepositoryPathForm(props: {
   readonly onAssign: (projectRef: ScopedProjectRef) => void;
 }) {
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
+  const pickFolderOnHost = useAtomCommand(filesystemEnvironment.pickFolder, {
+    reportFailure: false,
+  });
   const [path, setPath] = useState("");
   const [pending, setPending] = useState(false);
-  const canPickFolder = typeof window !== "undefined" && window.desktopBridge !== undefined;
+  const hasDesktopPicker = typeof window !== "undefined" && window.desktopBridge !== undefined;
+  // The host dialog opens on the server's screen, so only a browser on that machine can use it.
+  const canPickOnHost =
+    primaryEnvironmentId !== null &&
+    serverConfigs.get(primaryEnvironmentId)?.environment.platform.os === "darwin" &&
+    typeof window !== "undefined" &&
+    isLoopbackHostname(window.location.hostname);
+  const canPickFolder = hasDesktopPicker || canPickOnHost;
 
   const assignPath = async (rawPath: string) => {
     if (primaryEnvironmentId === null) {
@@ -117,10 +131,29 @@ function CompanyRepositoryPathForm(props: {
   };
 
   const browse = async () => {
-    const picked = await readLocalApi()
-      ?.dialogs.pickFolder(path.trim() ? { initialPath: path.trim() } : undefined)
-      .catch(() => null);
-    if (picked) await assignPath(picked);
+    const initialPath = path.trim() || undefined;
+    if (hasDesktopPicker) {
+      const picked = await readLocalApi()
+        ?.dialogs.pickFolder(initialPath ? { initialPath } : undefined)
+        .catch(() => null);
+      if (picked) await assignPath(picked);
+      return;
+    }
+    if (primaryEnvironmentId === null) return;
+    setPending(true);
+    const result = await pickFolderOnHost({
+      environmentId: primaryEnvironmentId,
+      input: initialPath ? { initialPath } : {},
+    });
+    setPending(false);
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        showRepositoryError(error instanceof Error ? error.message : "The folder picker failed.");
+      }
+      return;
+    }
+    if (result.value) await assignPath(result.value);
   };
 
   return (

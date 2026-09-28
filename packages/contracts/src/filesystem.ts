@@ -28,6 +28,25 @@ export const FilesystemBrowseFailure = Schema.Literals([
 ]);
 export type FilesystemBrowseFailure = typeof FilesystemBrowseFailure.Type;
 
+export const FilesystemPickFolderInput = Schema.Struct({
+  initialPath: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(FILESYSTEM_PATH_MAX_LENGTH)),
+  ),
+});
+export type FilesystemPickFolderInput = typeof FilesystemPickFolderInput.Type;
+
+/** The chosen absolute path on the environment host, or null when the user cancels. */
+export const FilesystemPickFolderResult = Schema.NullOr(TrimmedNonEmptyString);
+export type FilesystemPickFolderResult = typeof FilesystemPickFolderResult.Type;
+
+export class FilesystemPickFolderError extends Schema.TaggedError<FilesystemPickFolderError>()(
+  "FilesystemPickFolderError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
 function decodedFilesystemBrowseErrorMessage(props: object): string | undefined {
   if (!("message" in props)) return undefined;
   return typeof props.message === "string" ? props.message : undefined;
