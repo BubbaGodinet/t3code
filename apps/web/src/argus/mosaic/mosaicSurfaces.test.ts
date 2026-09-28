@@ -7,6 +7,7 @@ import {
   detachedFloatingPaneIds,
   dockFloatingPane,
   findSourcePaneId,
+  findSurfacePaneId,
   groupDevicesForPicker,
   normalizeTypedUrl,
   placeSurfacePane,
@@ -143,6 +144,22 @@ describe("placing a surface pane", () => {
     expect(findSourcePaneId(grid(), threadSource)).toBe("chat");
     expect(findSourcePaneId(grid(), terminalSource)).toBe("term");
     expect(findSourcePaneId(grid(), null)).toBeNull();
+  });
+
+  it("finds a session's open browser whether it floats or sits in the grid", () => {
+    const floated = placeSurfacePane(
+      grid(),
+      browser,
+      "float",
+      { paneId: "chat", slot: null },
+      newId,
+    );
+    expect(findSurfacePaneId(floated, "browser", threadSource)).toBe("browser");
+    expect(findSurfacePaneId(floated, "device", threadSource)).toBeNull();
+    expect(findSurfacePaneId(floated, "browser", terminalSource)).toBeNull();
+    expect(findSurfacePaneId(floated, "browser", null)).toBeNull();
+    const other = scopeThreadRef(environmentId, ThreadId.make("t2"));
+    expect(findSurfacePaneId(floated, "browser", { kind: "thread", threadRef: other })).toBeNull();
   });
 });
 

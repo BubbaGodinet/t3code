@@ -4,6 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { refreshDeviceHubAccess, useDeviceHubAccess } from "~/state/device";
 import { DeviceLoadingView } from "./DeviceLoadingView";
+import {
+  type DeviceBodyKind,
+  type DeviceBodyLayout,
+  deviceBodyFor,
+  layoutDeviceBody,
+} from "./deviceBody";
 import { type DeviceAxElement, fetchDeviceAxTree } from "./deviceHubApi";
 import {
   createDeviceStreamClient,
@@ -14,6 +20,64 @@ import {
 } from "@t3tools/client-runtime/device/stream";
 
 const AX_POLL_INTERVAL_MS = 2_000;
+
+/** The metal edge and keys of each body; the bezel itself is black glass. */
+const BODY_FRAME_COLOR: Record<DeviceBodyKind, string> = {
+  iphone: "#55555a",
+  ipad: "#55555a",
+  watch: "#48484c",
+  "android-phone": "#2f3033",
+  "android-tablet": "#2f3033",
+};
+
+function notchRadius(layout: DeviceBodyLayout, radius: number) {
+  const r = `${radius}px`;
+  return [`0 0 ${r} ${r}`, `${r} 0 0 ${r}`, `${r} ${r} 0 0`, `0 ${r} ${r} 0`][layout.turns];
+}
+
+function DeviceBodyParts({ kind, layout }: { kind: DeviceBodyKind; layout: DeviceBodyLayout }) {
+  const frameColor = BODY_FRAME_COLOR[kind];
+  const { cutout, homeButton } = layout;
+  const cutoutShort = cutout ? Math.min(cutout.width, cutout.height) : 0;
+  return (
+    <>
+      {layout.keys.map((key, index) => (
+        <span
+          // oxlint-disable-next-line react/no-array-index-key -- Keys are fixed per body.
+          key={index}
+          aria-hidden
+          className="pointer-events-none absolute rounded-[1px]"
+          style={{ ...key, backgroundColor: frameColor }}
+        />
+      ))}
+      {cutout ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute bg-black"
+          style={{
+            left: cutout.left,
+            top: cutout.top,
+            width: cutout.width,
+            height: cutout.height,
+            borderRadius:
+              cutout.kind === "notch" ? notchRadius(layout, cutoutShort * 0.45) : cutoutShort / 2,
+            ...(cutout.kind === "punch-hole" ? { boxShadow: "0 0 0 1px #1c1c1e" } : {}),
+          }}
+        />
+      ) : null}
+      {homeButton ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute rounded-full"
+          style={{
+            ...homeButton,
+            boxShadow: `inset 0 0 0 ${Math.max(1, homeButton.width * 0.06)}px ${frameColor}`,
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
 
 export interface DeviceStreamHandle {
   readonly pressButton: (button: DeviceHardwareButton) => void;
@@ -38,6 +102,8 @@ export function DeviceStreamView(props: {
   readonly hostId: string;
   /** Draw accessibility element frames over the screen. */
   readonly axOverlay?: boolean;
+  /** Set the screen in a phone, tablet, or watch body picked from the platform and device name. */
+  readonly deviceBody?: boolean;
   readonly onHandle?: (handle: DeviceStreamHandle | null) => void;
   readonly onScreen?: (screen: DeviceScreenSize | null) => void;
 }) {
@@ -113,9 +179,14 @@ export function DeviceStreamView(props: {
     props.visible,
   ]);
 
+  const bodySpec = useMemo(
+    () => (props.deviceBody ? deviceBodyFor(props.platform, props.deviceName) : null),
+    [props.deviceBody, props.deviceName, props.platform],
+  );
+
   // Displayed aspect ratio (width / height) of the device as the user sees it.
   const aspect = useMemo(() => {
-    if (!screen) return props.platform === "ios" ? 9 / 19.5 : 9 / 20;
+    if (!screen) return bodySpec?.defaultAspect ?? (props.platform === "ios" ? 9 / 19.5 : 9 / 20);
     const landscape =
       screen.orientation === "landscape_left" || screen.orientation === "landscape_right";
     const w = landscape
@@ -125,7 +196,7 @@ export function DeviceStreamView(props: {
       ? Math.min(screen.width, screen.height)
       : Math.max(screen.width, screen.height);
     return w / h;
-  }, [props.platform, screen]);
+  }, [bodySpec, props.platform, screen]);
 
   // The frame is the largest box at `aspect` that fits the container, so a
   // narrow panel shows a shorter phone rather than a squeezed one. CSS
@@ -149,13 +220,25 @@ export function DeviceStreamView(props: {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+  // With a body, the body fits the container (less room for its side keys) and the screen is its glass.
+  const body = useMemo(() => {
+    if (!bodySpec) return null;
+    const pad = Math.max(10, Math.min(host.width, host.height) * 0.04);
+    return layoutDeviceBody({
+      box: { width: host.width - pad * 2, height: host.height - pad * 2 },
+      spec: bodySpec,
+      screenAspect: screen ? aspect : null,
+      orientation: screen?.orientation,
+    });
+  }, [aspect, bodySpec, host, screen]);
   const frame = useMemo(() => {
+    if (body) return { width: body.screen.width, height: body.screen.height };
     if (host.width === 0 || host.height === 0) return { width: 0, height: 0 };
     const byHeight = { width: host.height * aspect, height: host.height };
     return byHeight.width <= host.width
       ? byHeight
       : { width: host.width, height: host.width / aspect };
-  }, [aspect, host]);
+  }, [aspect, body, host]);
 
   // serve-sim streams the raw framebuffer; rotate the display for a device
   // that reports landscape while its frames stay portrait.
@@ -227,10 +310,92 @@ export function DeviceStreamView(props: {
     return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
   };
 
+  const screenElement = (
+    <div
+      className={cn("select-none", body ? "absolute overflow-hidden bg-black" : "relative")}
+      style={
+        body
+          ? {
+              left: body.screen.left,
+              top: body.screen.top,
+              width: frame.width,
+              height: frame.height,
+              borderRadius: body.screen.radius,
+            }
+          : { width: frame.width, height: frame.height }
+      }
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        hostRef.current?.focus();
+        pointerActive.current = true;
+        const { x, y } = normalizedPoint(event);
+        clientRef.current?.sendTouch("begin", x, y);
+      }}
+      onPointerMove={(event) => {
+        if (!pointerActive.current) return;
+        const { x, y } = normalizedPoint(event);
+        clientRef.current?.sendTouch("move", x, y);
+      }}
+      onPointerUp={(event) => {
+        if (!pointerActive.current) return;
+        pointerActive.current = false;
+        const { x, y } = normalizedPoint(event);
+        clientRef.current?.sendTouch("end", x, y);
+      }}
+      onPointerCancel={(event) => {
+        if (!pointerActive.current) return;
+        pointerActive.current = false;
+        const { x, y } = normalizedPoint(event);
+        clientRef.current?.sendTouch("end", x, y);
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        className={cn("absolute top-0 left-0", mjpegUrl && "hidden")}
+        style={mediaStyle}
+      />
+      {props.visible && access && mjpegUrl ? (
+        <img
+          key={mjpegGeneration}
+          src={mjpegUrl}
+          alt=""
+          draggable={false}
+          className="absolute top-0 left-0 object-contain"
+          style={mediaStyle}
+        />
+      ) : null}
+      {axElements.length > 0 ? (
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          {axElements.map((element) => (
+            <div
+              key={element.id}
+              className="absolute border border-sky-400/80 bg-sky-400/10"
+              style={{
+                left: `${element.x * 100}%`,
+                top: `${element.y * 100}%`,
+                width: `${element.width * 100}%`,
+                height: `${element.height * 100}%`,
+              }}
+            >
+              {element.label ? (
+                <span className="absolute -top-3.5 left-0 max-w-full truncate rounded-sm bg-sky-500 px-1 text-[9px] leading-3.5 text-white">
+                  {element.label}
+                </span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
     <div
       ref={hostRef}
-      className="relative flex size-full items-center justify-center overflow-hidden bg-black/90 outline-none"
+      className={cn(
+        "relative flex size-full items-center justify-center overflow-hidden outline-none",
+        !body && "bg-black/90",
+      )}
       tabIndex={0}
       role="application"
       aria-label={`${props.platform === "ios" ? "iOS Simulator" : "Android Emulator"} screen`}
@@ -243,72 +408,22 @@ export function DeviceStreamView(props: {
         clientRef.current?.sendKey(event.nativeEvent, "up");
       }}
     >
-      <div
-        className="relative select-none"
-        style={{ width: frame.width, height: frame.height }}
-        onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture(event.pointerId);
-          (event.currentTarget.parentElement as HTMLElement | null)?.focus();
-          pointerActive.current = true;
-          const { x, y } = normalizedPoint(event);
-          clientRef.current?.sendTouch("begin", x, y);
-        }}
-        onPointerMove={(event) => {
-          if (!pointerActive.current) return;
-          const { x, y } = normalizedPoint(event);
-          clientRef.current?.sendTouch("move", x, y);
-        }}
-        onPointerUp={(event) => {
-          if (!pointerActive.current) return;
-          pointerActive.current = false;
-          const { x, y } = normalizedPoint(event);
-          clientRef.current?.sendTouch("end", x, y);
-        }}
-        onPointerCancel={(event) => {
-          if (!pointerActive.current) return;
-          pointerActive.current = false;
-          const { x, y } = normalizedPoint(event);
-          clientRef.current?.sendTouch("end", x, y);
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          className={cn("absolute top-0 left-0", mjpegUrl && "hidden")}
-          style={mediaStyle}
-        />
-        {props.visible && access && mjpegUrl ? (
-          <img
-            key={mjpegGeneration}
-            src={mjpegUrl}
-            alt=""
-            draggable={false}
-            className="absolute top-0 left-0 object-contain"
-            style={mediaStyle}
-          />
-        ) : null}
-        {axElements.length > 0 ? (
-          <div className="pointer-events-none absolute inset-0" aria-hidden>
-            {axElements.map((element) => (
-              <div
-                key={element.id}
-                className="absolute border border-sky-400/80 bg-sky-400/10"
-                style={{
-                  left: `${element.x * 100}%`,
-                  top: `${element.y * 100}%`,
-                  width: `${element.width * 100}%`,
-                  height: `${element.height * 100}%`,
-                }}
-              >
-                {element.label ? (
-                  <span className="absolute -top-3.5 left-0 max-w-full truncate rounded-sm bg-sky-500 px-1 text-[9px] leading-3.5 text-white">
-                    {element.label}
-                  </span>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
+      {body && bodySpec ? (
+        <div
+          className="relative shrink-0 bg-black"
+          style={{
+            width: body.width,
+            height: body.height,
+            borderRadius: body.radius,
+            boxShadow: `0 0 0 ${Math.max(1, body.width * 0.009)}px ${BODY_FRAME_COLOR[bodySpec.kind]}, 0 16px 40px -16px rgb(0 0 0 / 0.6)`,
+          }}
+        >
+          {screenElement}
+          <DeviceBodyParts kind={bodySpec.kind} layout={body} />
+        </div>
+      ) : (
+        screenElement
+      )}
       {status === "streaming" && !inputState.connected ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
           <span className="rounded-md bg-background/85 px-2 py-1 text-xs text-muted-foreground">

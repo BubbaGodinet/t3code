@@ -288,6 +288,7 @@ export function DevicePanel(props: {
                 hostId={activeDevice.hostId}
                 visible={props.visible}
                 axOverlay={axOverlay}
+                deviceBody
                 onHandle={setHandle}
               />
             </div>

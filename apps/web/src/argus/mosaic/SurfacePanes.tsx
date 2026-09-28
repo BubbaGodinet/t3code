@@ -17,6 +17,7 @@ import {
   SquareIcon,
   XIcon,
 } from "lucide-react";
+import { resolveProjectScripts } from "@t3tools/shared/projectScripts";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { resolveDiscoveredServerUrl } from "../../browser/browserTargetResolver";
@@ -26,6 +27,9 @@ import {
   DeviceStreamView,
   type DeviceStreamHandle,
 } from "../../components/device/DeviceStreamView";
+import { openPreviewSession } from "../../components/preview/openPreviewSession";
+import { getConfiguredPreviewUrls } from "../../components/preview/previewEmptyStateLogic";
+import { PreviewView } from "../../components/preview/PreviewView";
 import { usePreviewSession } from "../../components/preview/usePreviewSession";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
@@ -39,17 +43,25 @@ import {
 } from "../../components/ui/menu";
 import { Spinner } from "../../components/ui/spinner";
 import { WizardPopup } from "../../components/ui/wizard";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useDiscoveredPortsState } from "../../portDiscoveryState";
 import { isPreviewSupportedInRuntime, useThreadPreviewState } from "../../previewStateStore";
-import { useRightPanelStore, type DeviceTabTarget } from "../../rightPanelStore";
+import {
+  selectActiveRightPanel,
+  useRightPanelStore,
+  type DeviceTabTarget,
+} from "../../rightPanelStore";
 import { deviceEnvironment, useDeviceState } from "../../state/device";
+import { useProject } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { previewEnvironment } from "../../state/preview";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useMosaicStore, type MosaicCompany, type MosaicPane } from "./mosaicStore";
 import {
   findSourcePaneId,
+  findSurfacePaneId,
   groupDevicesForPicker,
   normalizeTypedUrl,
   resolveSessionBrowserUrl,
@@ -90,9 +102,17 @@ export function paneSurfaceSource(
   }
 }
 
+function paneBox(
+  state: Pick<ReturnType<typeof useMosaicStore.getState>, "floating" | "root">,
+  paneId: string,
+) {
+  return (
+    state.floating[paneId] ?? layoutMosaic(state.root).panes.find((p) => p.paneId === paneId)?.rect
+  );
+}
+
 function paneRect(paneId: string) {
-  const { floating, root } = useMosaicStore.getState();
-  return floating[paneId] ?? layoutMosaic(root).panes.find((p) => p.paneId === paneId)?.rect;
+  return paneBox(useMosaicStore.getState(), paneId);
 }
 
 /** Opens the thread's own side panel on the browser or device, and brings its chat forward. */
@@ -174,14 +194,35 @@ export function SurfaceLaunchMenus({
 }) {
   const source = paneSurfaceSource(pane, company);
   const showInChat = useShowInChat();
+  const { closePane, focusPane } = useMosaicActions();
   const launch = (kind: MosaicSurfaceKind, placement: MosaicSurfacePlacement) => {
+    const state = useMosaicStore.getState();
+    // A session's browser is one webview; only one place can show it at a time.
+    const openBrowserId = kind === "browser" ? findSurfacePaneId(state, "browser", source) : null;
     if (placement === "chat") {
       if (source?.kind === "thread") {
+        if (openBrowserId) closePane(openBrowserId);
         showInChat(kind, source.threadRef, pane.kind === "device" ? pane.device : null);
       }
       return;
     }
-    useMosaicStore.getState().openSurfacePane({
+    if (
+      kind === "browser" &&
+      source?.kind === "thread" &&
+      selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, source.threadRef) ===
+        "preview"
+    ) {
+      useRightPanelStore.getState().close(source.threadRef);
+    }
+    if (openBrowserId) {
+      const floating = state.floating[openBrowserId] !== undefined;
+      const slot = paneRect(openBrowserId);
+      if (placement === "float" && !floating && slot) state.toggleFloating(openBrowserId, slot);
+      else if (placement === "pane" && floating) state.dockFloating(openBrowserId);
+      focusPane(openBrowserId);
+      return;
+    }
+    state.openSurfacePane({
       kind,
       placement,
       source,
@@ -262,10 +303,126 @@ function ToolbarButton(props: {
 }
 
 /**
- * The session's page in a frame: what the chat's own preview shows, else a dev
- * server the session started, else a URL typed here (which stays pinned).
+ * The pane's session in T3's own browser. On desktop that is the same preview
+ * tab and webview the chat's side panel shows; the web has no embedded browser,
+ * so it frames the page instead, which sites that refuse framing will block.
  */
-export function BrowserSurfaceView({
+export function BrowserSurfaceView(props: { pane: BrowserPane; company: MosaicCompany | null }) {
+  return isPreviewSupportedInRuntime() ? (
+    <HostedBrowserSurface {...props} />
+  ) : (
+    <FramedBrowserSurface {...props} />
+  );
+}
+
+/** Grid browsers sit under floating panes; a floating browser sits over the grid and its peers. */
+const GRID_BROWSER_Z_INDEX = 20;
+const FLOATING_BROWSER_Z_INDEX = 35;
+const ACTIVE_FLOATING_BROWSER_Z_INDEX = 45;
+
+function HostedBrowserSurface({
+  pane,
+  company,
+}: {
+  pane: BrowserPane;
+  company: MosaicCompany | null;
+}) {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const environmentId =
+    pane.source?.threadRef.environmentId ??
+    company?.projectRef?.environmentId ??
+    primaryEnvironmentId;
+  // A pane opened from no session gets a preview thread of its own, like the device pane.
+  const threadRef = useMemo(
+    () =>
+      pane.source?.threadRef ??
+      (environmentId
+        ? scopeThreadRef(environmentId, ThreadId.make(`argus-browser-${pane.id}`))
+        : null),
+    [environmentId, pane.id, pane.source],
+  );
+  if (threadRef === null) {
+    return <p className="p-4 text-sm text-muted-foreground">Connect to an environment first.</p>;
+  }
+  return <SessionBrowser pane={pane} company={company} threadRef={threadRef} />;
+}
+
+function SessionBrowser({
+  pane,
+  company,
+  threadRef,
+}: {
+  pane: BrowserPane;
+  company: MosaicCompany | null;
+  threadRef: ScopedThreadRef;
+}) {
+  const layoutVersion = useMosaicStore((state) => {
+    const box = paneBox(state, pane.id);
+    return box ? `${box.x}:${box.y}:${box.width}:${box.height}` : "";
+  });
+  const zIndex = useMosaicStore((state) =>
+    state.floating[pane.id] === undefined
+      ? GRID_BROWSER_Z_INDEX
+      : state.activePaneId === pane.id
+        ? ACTIVE_FLOATING_BROWSER_Z_INDEX
+        : FLOATING_BROWSER_Z_INDEX,
+  );
+  const project = useProject(company?.projectRef ?? null);
+  const settings = useEnvironmentSettings(threadRef.environmentId);
+  const configuredUrls = useMemo(
+    () => getConfiguredPreviewUrls(project ? resolveProjectScripts(settings, project) : []),
+    [project, settings],
+  );
+  useOpenKnownSessionPage(threadRef, pane.url);
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <PreviewView
+        threadRef={threadRef}
+        configuredUrls={configuredUrls}
+        visible
+        surfaceZIndex={zIndex}
+        surfaceLayoutVersion={layoutVersion}
+      />
+    </div>
+  );
+}
+
+/**
+ * Opens the page T3 already knows for a session that has no browser tab yet: a
+ * URL the pane was saved with, else the lowest-port dev server its terminals
+ * started. Runs once per pane, after the server's tab list arrives, so it never
+ * duplicates or reopens a tab the user closed.
+ */
+function useOpenKnownSessionPage(threadRef: ScopedThreadRef, pinnedUrl: string | null) {
+  const preview = useThreadPreviewState(threadRef);
+  const { servers } = useDiscoveredPortsState(threadRef.environmentId);
+  const open = useAtomCommand(previewEnvironment.open);
+  const settledRef = useRef(false);
+  const loaded = preview.serverEpoch !== null;
+  const hasTab = Object.keys(preview.sessions).length > 0;
+  const target = resolveSessionBrowserUrl({
+    pinnedUrl,
+    activePreview: null,
+    sessionServers: servers.filter((server) => server.terminal?.threadId === threadRef.threadId),
+  }).url;
+  useEffect(() => {
+    if (settledRef.current || !loaded) return;
+    if (hasTab) {
+      settledRef.current = true;
+      return;
+    }
+    if (!target) return;
+    settledRef.current = true;
+    void openPreviewSession({
+      openPreview: open,
+      threadRef,
+      url: resolveDiscoveredServerUrl(threadRef.environmentId, target),
+    });
+  }, [hasTab, loaded, open, target, threadRef]);
+}
+
+/** The web's stand-in: the session's page in a frame, following the chat's preview. */
+function FramedBrowserSurface({
   pane,
   company,
 }: {
@@ -624,6 +781,7 @@ export function DeviceSurfaceView({
             deviceName={device.name}
             deviceDescription={`${company?.name ?? hostLabel(device.hostId)} · ${device.version}`}
             visible
+            deviceBody
             onHandle={setHandle}
           />
         ) : target && (starting || !loaded) ? (

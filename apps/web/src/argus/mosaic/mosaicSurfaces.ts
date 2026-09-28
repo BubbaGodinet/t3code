@@ -129,6 +129,28 @@ export function findSourcePaneId(
 }
 
 /**
+ * The browser or device pane already open for `source`, in the grid or floating.
+ * A session's browser is one webview, so a second placement moves this pane.
+ */
+export function findSurfacePaneId(
+  layout: Pick<SurfaceLayout, "panes">,
+  kind: MosaicSurfaceKind,
+  source: MosaicSurfaceSource | null,
+): string | null {
+  if (!source) return null;
+  const { environmentId, threadId } = source.threadRef;
+  return (
+    Object.values(layout.panes).find(
+      (pane) =>
+        pane.kind === kind &&
+        pane.source?.kind === source.kind &&
+        pane.source.threadRef.environmentId === environmentId &&
+        pane.source.threadRef.threadId === threadId,
+    )?.id ?? null
+  );
+}
+
+/**
  * Docks a floating pane. One popped out of the grid returns to its slot; one
  * that floated from the start joins the grid beside `besidePaneId`.
  */

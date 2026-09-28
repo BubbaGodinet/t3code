@@ -82,6 +82,10 @@ interface Props {
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
   ) => void;
+  /** Stacking of the hosted webview, for hosts that float the view above other panes. */
+  surfaceZIndex?: number;
+  /** Changes whenever the host moves the view without resizing it, so the webview follows. */
+  surfaceLayoutVersion?: string;
 }
 
 function previewProfileName(
@@ -103,6 +107,8 @@ export function PreviewView({
   configuredUrls,
   visible,
   onSendAnnotation,
+  surfaceZIndex,
+  surfaceLayoutVersion,
 }: Props) {
   const [focusUrlNonce, setFocusUrlNonce] = useState<number | undefined>(undefined);
   const [pickActive, setPickActive] = useState(false);
@@ -782,6 +788,8 @@ export function PreviewView({
             key={runtimeTabId}
             tabId={runtimeTabId}
             visible={visible && !isUnreachable}
+            {...(surfaceZIndex === undefined ? {} : { zIndex: surfaceZIndex })}
+            {...(surfaceLayoutVersion === undefined ? {} : { layoutVersion: surfaceLayoutVersion })}
             className="absolute inset-0 h-full w-full"
           />
         ) : null}
