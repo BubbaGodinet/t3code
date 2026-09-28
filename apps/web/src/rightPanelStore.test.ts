@@ -102,6 +102,16 @@ describe("rightPanelStore", () => {
     },
   );
 
+  it("leaves a device another host shows out of the panel until the user opens it here", () => {
+    const store = useRightPanelStore.getState();
+    const target = { hostId: "mac", deviceId: "ios-1", name: "iPhone", platform: "ios" } as const;
+    store.keepDeviceOutOfPanel(refA, target);
+    store.openDevice(refA, target, true);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
+    store.openDevice(refA, target);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("device");
+  });
+
   const completedDiff = { id: "diff", kind: "diff" } as const;
   const linkedPullRequest = pullRequestSurface({
     projectId: "project-a",

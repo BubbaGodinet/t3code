@@ -1,5 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ThreadId, type PreviewSessionSnapshot } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { MosaicPane } from "./mosaicStore";
@@ -8,10 +8,8 @@ import {
   dockFloatingPane,
   findSourcePaneId,
   findSurfacePaneId,
-  groupDevicesForPicker,
-  normalizeTypedUrl,
   placeSurfacePane,
-  resolveSessionBrowserUrl,
+  sessionBrowserStartUrl,
   surfacePlacementOptions,
   type MosaicSurfaceSource,
 } from "./mosaicSurfaces";
@@ -63,7 +61,7 @@ describe("surface placement options", () => {
     const options = surfacePlacementOptions({
       kind: "device",
       source: threadSource,
-      inChatBrowserSupported: false,
+      browserSupported: false,
     });
     expect(options.map((option) => [option.placement, option.disabledReason])).toEqual([
       ["chat", null],
@@ -76,22 +74,26 @@ describe("surface placement options", () => {
     const fromTerminal = surfacePlacementOptions({
       kind: "device",
       source: terminalSource,
-      inChatBrowserSupported: true,
+      browserSupported: true,
     });
     expect(fromTerminal[0]?.disabledReason).toMatch(/started chat/);
     expect(fromTerminal.slice(1).every((option) => option.disabledReason === null)).toBe(true);
+  });
 
+  it("offers T3's browser in no placement where it cannot run", () => {
     const webBrowser = surfacePlacementOptions({
       kind: "browser",
       source: threadSource,
-      inChatBrowserSupported: false,
+      browserSupported: false,
     });
-    expect(webBrowser[0]?.disabledReason).toMatch(/desktop app/);
+    expect(webBrowser.every((option) => /desktop app/.test(option.disabledReason ?? ""))).toBe(
+      true,
+    );
     expect(
       surfacePlacementOptions({
         kind: "browser",
         source: threadSource,
-        inChatBrowserSupported: true,
+        browserSupported: true,
       })[0]?.disabledReason,
     ).toBeNull();
   });
@@ -163,70 +165,18 @@ describe("placing a surface pane", () => {
   });
 });
 
-const previewSnapshot = (navStatus: PreviewSessionSnapshot["navStatus"]) =>
-  ({ navStatus }) as PreviewSessionSnapshot;
-
-describe("session browser URL", () => {
-  const servers = [
-    { url: "http://localhost:5173/", port: 5173 },
-    { url: "http://localhost:3000/", port: 3000 },
-  ];
-
-  it("prefers a pinned URL, then the chat's preview page, then the lowest dev server port", () => {
-    const preview = previewSnapshot({
-      _tag: "Success",
-      url: "http://localhost:5173/settings",
-      title: "Settings",
-    } as PreviewSessionSnapshot["navStatus"]);
+describe("session browser start page", () => {
+  it("prefers a saved URL, then the lowest dev server port", () => {
+    const servers = [
+      { url: "http://localhost:5173/", port: 5173 },
+      { url: "http://localhost:3000/", port: 3000 },
+    ];
     expect(
-      resolveSessionBrowserUrl({
-        pinnedUrl: "http://localhost:8080/",
-        activePreview: preview,
-        sessionServers: servers,
-      }),
-    ).toEqual({ url: "http://localhost:8080/", source: "pinned" });
-    expect(
-      resolveSessionBrowserUrl({
-        pinnedUrl: null,
-        activePreview: preview,
-        sessionServers: servers,
-      }),
-    ).toEqual({ url: "http://localhost:5173/settings", source: "preview" });
-    expect(
-      resolveSessionBrowserUrl({
-        pinnedUrl: null,
-        activePreview: previewSnapshot({ _tag: "Idle" }),
-        sessionServers: servers,
-      }),
-    ).toEqual({ url: "http://localhost:3000/", source: "server" });
-    expect(
-      resolveSessionBrowserUrl({ pinnedUrl: null, activePreview: null, sessionServers: [] }),
-    ).toEqual({ url: null, source: "none" });
-  });
-
-  it("reads what a user types in the address bar", () => {
-    expect(normalizeTypedUrl("3000")).toBe("http://localhost:3000/");
-    expect(normalizeTypedUrl("localhost:5173/app")).toBe("http://localhost:5173/app");
-    expect(normalizeTypedUrl("https://example.com")).toBe("https://example.com/");
-    expect(normalizeTypedUrl("  ")).toBeNull();
-    expect(normalizeTypedUrl("file:///etc/hosts")).toBeNull();
-  });
-});
-
-describe("device picker list", () => {
-  it("groups iOS before Android with running devices first", () => {
-    const groups = groupDevicesForPicker([
-      { platform: "android", name: "Pixel_9", version: "Android", booted: false },
-      { platform: "ios", name: "iPhone 17", version: "iOS 26.5", booted: false },
-      { platform: "ios", name: "iPhone 18 Pro", version: "iOS 27.0", booted: true },
-      { platform: "ios", name: "iPhone 17", version: "iOS 27.0", booted: false },
-    ]);
-    expect(groups.map((group) => group.platform)).toEqual(["ios", "android"]);
-    expect(groups[0]!.devices.map((device) => `${device.name} ${device.version}`)).toEqual([
-      "iPhone 18 Pro iOS 27.0",
-      "iPhone 17 iOS 27.0",
-      "iPhone 17 iOS 26.5",
-    ]);
-    expect(groupDevicesForPicker([])).toEqual([]);
+      sessionBrowserStartUrl({ pinnedUrl: "http://localhost:8080/", sessionServers: servers }),
+    ).toBe("http://localhost:8080/");
+    expect(sessionBrowserStartUrl({ pinnedUrl: null, sessionServers: servers })).toBe(
+      "http://localhost:3000/",
+    );
+    expect(sessionBrowserStartUrl({ pinnedUrl: null, sessionServers: [] })).toBeNull();
   });
 });

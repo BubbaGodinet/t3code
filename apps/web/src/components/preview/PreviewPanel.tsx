@@ -18,6 +18,10 @@ interface Props {
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
   ) => void;
+  /** Stacking of the hosted webview, for hosts that float the panel above other panes. */
+  surfaceZIndex?: number;
+  /** Changes whenever the host moves the panel without resizing it, so the webview follows. */
+  surfaceLayoutVersion?: string;
 }
 
 export function PreviewPanel({
@@ -27,6 +31,8 @@ export function PreviewPanel({
   configuredUrls,
   visible,
   onSendAnnotation,
+  surfaceZIndex,
+  surfaceLayoutVersion,
 }: Props) {
   if (!isPreviewSupportedInRuntime()) {
     return (
@@ -48,6 +54,8 @@ export function PreviewPanel({
         configuredUrls={configuredUrls}
         visible={visible}
         {...(onSendAnnotation ? { onSendAnnotation } : {})}
+        {...(surfaceZIndex === undefined ? {} : { surfaceZIndex })}
+        {...(surfaceLayoutVersion === undefined ? {} : { surfaceLayoutVersion })}
       />
     </PreviewPanelShell>
   );

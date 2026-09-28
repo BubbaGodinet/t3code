@@ -1,10 +1,4 @@
-import type {
-  DevicePlatform,
-  DeviceSummary,
-  DiscoveredLocalServer,
-  PreviewSessionSnapshot,
-  ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { DiscoveredLocalServer, ScopedThreadRef } from "@t3tools/contracts";
 
 import { initialFloatRect, type MosaicFloatRect } from "./mosaicFloat";
 import type { MosaicPane } from "./mosaicStore";
@@ -38,19 +32,21 @@ export interface MosaicPlacementOption {
 export function surfacePlacementOptions(input: {
   readonly kind: MosaicSurfaceKind;
   readonly source: MosaicSurfaceSource | null;
-  /** The in-chat browser runs on the desktop app's embedded Chromium. */
-  readonly inChatBrowserSupported: boolean;
+  /** T3's browser runs on the desktop app's embedded Chromium, wherever it is placed. */
+  readonly browserSupported: boolean;
 }): ReadonlyArray<MosaicPlacementOption> {
+  const runtimeReason =
+    input.kind === "browser" && !input.browserSupported
+      ? "The browser needs the T3 Code desktop app."
+      : null;
   const chatReason =
     input.source?.kind !== "thread"
       ? "Only a started chat has a side panel. Send a message first."
-      : input.kind === "browser" && !input.inChatBrowserSupported
-        ? "The in-chat browser needs the T3 Code desktop app."
-        : null;
+      : runtimeReason;
   return [
     { placement: "chat", label: "In the chat", disabledReason: chatReason },
-    { placement: "float", label: "Float above everything", disabledReason: null },
-    { placement: "pane", label: "Own grid pane", disabledReason: null },
+    { placement: "float", label: "Float above everything", disabledReason: runtimeReason },
+    { placement: "pane", label: "Own grid pane", disabledReason: runtimeReason },
   ];
 }
 
@@ -170,59 +166,14 @@ export function dockFloatingPane(
   };
 }
 
-export type MosaicBrowserUrlSource = "pinned" | "preview" | "server" | "none";
-
 /**
- * What the grid's browser shows for a session: a URL the user pinned in that
- * browser, else the page the thread's own preview is on, else a dev server
- * the session's terminals started (lowest port first).
+ * The page a session's browser opens when it has no tab yet: the URL a saved
+ * pane kept, else the lowest-port dev server the session's terminals started.
  */
-export function resolveSessionBrowserUrl(input: {
+export function sessionBrowserStartUrl(input: {
   readonly pinnedUrl: string | null;
-  readonly activePreview: PreviewSessionSnapshot | null;
   readonly sessionServers: ReadonlyArray<Pick<DiscoveredLocalServer, "url" | "port">>;
-}): { readonly url: string | null; readonly source: MosaicBrowserUrlSource } {
-  if (input.pinnedUrl) return { url: input.pinnedUrl, source: "pinned" };
-  const status = input.activePreview?.navStatus;
-  if (status && status._tag !== "Idle") return { url: status.url, source: "preview" };
-  const server = input.sessionServers.toSorted((left, right) => left.port - right.port)[0];
-  if (server) return { url: server.url, source: "server" };
-  return { url: null, source: "none" };
-}
-
-/**
- * Devices for the picker: iOS then Android, running devices first, then by
- * name and OS so same-named simulators on two runtimes stay in a steady order.
- */
-export function groupDevicesForPicker<
-  T extends Pick<DeviceSummary, "platform" | "name" | "version" | "booted">,
->(devices: ReadonlyArray<T>): ReadonlyArray<{ platform: DevicePlatform; devices: T[] }> {
-  return (["ios", "android"] as const).flatMap((platform) => {
-    const matching = devices
-      .filter((device) => device.platform === platform)
-      .toSorted(
-        (left, right) =>
-          Number(right.booted) - Number(left.booted) ||
-          left.name.localeCompare(right.name) ||
-          right.version.localeCompare(left.version, undefined, { numeric: true }),
-      );
-    return matching.length > 0 ? [{ platform, devices: matching }] : [];
-  });
-}
-
-/** Accepts what a user types in an address bar: a full http(s) URL, `host:port`, or a bare port. */
-export function normalizeTypedUrl(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return null;
-  const candidate = /^\d{2,5}$/.test(value)
-    ? `http://localhost:${value}`
-    : /^[a-z][a-z\d+.-]*:\/\//i.test(value)
-      ? value
-      : `http://${value}`;
-  try {
-    const url = new URL(candidate);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
-  } catch {
-    return null;
-  }
+}): string | null {
+  if (input.pinnedUrl) return input.pinnedUrl;
+  return input.sessionServers.toSorted((left, right) => left.port - right.port)[0]?.url ?? null;
 }

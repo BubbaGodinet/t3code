@@ -18,7 +18,11 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
-import { useRightPanelStore, type RightPanelSurface } from "~/rightPanelStore";
+import {
+  useRightPanelStore,
+  type DeviceTabTarget,
+  type RightPanelSurface,
+} from "~/rightPanelStore";
 import { Button } from "~/components/ui/button";
 import { DiscoveryList, DiscoveryListRow } from "~/components/ui/discovery-list";
 import { Dialog } from "~/components/ui/dialog";
@@ -42,6 +46,15 @@ const platformLabel = (platform: DevicePlatform) =>
 const deviceKey = (device: Pick<DeviceSummary, "hostId" | "id">) =>
   `${device.hostId}\u0000${device.id}`;
 
+/**
+ * Shows the panel somewhere other than the thread's side panel, such as an Argus mosaic pane.
+ * The host keeps the chosen device and owns closing and floating.
+ */
+export interface DevicePanelHost {
+  readonly onDeviceOpened: (target: DeviceTabTarget) => void;
+  readonly onClose: () => void;
+}
+
 /** Each surface owns one host/device; only the visible surface streams. */
 export function DevicePanel(props: {
   readonly mode: PreviewPanelMode;
@@ -49,6 +62,7 @@ export function DevicePanel(props: {
   readonly surface: Extract<RightPanelSurface, { kind: "device" }>;
   readonly visible: boolean;
   readonly onDismissSetup: () => void;
+  readonly host?: DevicePanelHost;
 }) {
   const { environmentId, threadId } = props.threadRef;
   const { state, loaded } = useDeviceState(environmentId);
@@ -95,6 +109,15 @@ export function DevicePanel(props: {
     if (!device) return;
     setOperationError(null);
     setPendingDevice(device);
+    const hostedTarget = {
+      hostId: device.hostId,
+      deviceId: device.id,
+      platform: device.platform,
+      name: device.name,
+    };
+    if (props.host) {
+      useRightPanelStore.getState().keepDeviceOutOfPanel(props.threadRef, hostedTarget);
+    }
     try {
       const result = await open({
         environmentId,
@@ -105,14 +128,17 @@ export function DevicePanel(props: {
           platform: device.platform,
         },
       });
-      if (result._tag === "Failure") setOperationError(formatEnvironmentQueryError(result.cause));
-      else
-        useRightPanelStore.getState().openDevice(props.threadRef, {
-          hostId: result.value.hostId,
-          deviceId: result.value.deviceId,
-          platform: device.platform,
-          name: device.name,
-        });
+      if (result._tag === "Failure") {
+        setOperationError(formatEnvironmentQueryError(result.cause));
+        return;
+      }
+      const target = {
+        ...hostedTarget,
+        hostId: result.value.hostId,
+        deviceId: result.value.deviceId,
+      };
+      if (props.host) props.host.onDeviceOpened(target);
+      else useRightPanelStore.getState().openDevice(props.threadRef, target);
     } finally {
       setPendingDevice(null);
     }
@@ -131,9 +157,14 @@ export function DevicePanel(props: {
     useRightPanelStore.getState().close(props.threadRef);
   };
 
+  const closeSurface = () => {
+    if (props.host) props.host.onClose();
+    else useRightPanelStore.getState().closeSurface(props.threadRef, props.surface.id);
+  };
+
   const closeActive = (powerOff: boolean) => {
     if (!powerOff) {
-      useRightPanelStore.getState().closeSurface(props.threadRef, props.surface.id);
+      closeSurface();
       return;
     }
     if (!activeSession) return;
@@ -148,7 +179,7 @@ export function DevicePanel(props: {
       },
     }).then((result) => {
       if (result._tag === "Failure") setOperationError(formatEnvironmentQueryError(result.cause));
-      else useRightPanelStore.getState().closeSurface(props.threadRef, props.surface.id);
+      else closeSurface();
     });
   };
 
@@ -233,9 +264,11 @@ export function DevicePanel(props: {
             >
               <SlidersHorizontal />
             </Toggle>
-            <DeviceButton label="Float device over chat" onClick={floatActive}>
-              <PictureInPicture2 />
-            </DeviceButton>
+            {props.host ? null : (
+              <DeviceButton label="Float device over chat" onClick={floatActive}>
+                <PictureInPicture2 />
+              </DeviceButton>
+            )}
             <DeviceButton label="Power off" onClick={() => closeActive(true)}>
               <Power />
             </DeviceButton>
@@ -288,7 +321,6 @@ export function DevicePanel(props: {
                 hostId={activeDevice.hostId}
                 visible={props.visible}
                 axOverlay={axOverlay}
-                deviceBody
                 onHandle={setHandle}
               />
             </div>

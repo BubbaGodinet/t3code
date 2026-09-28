@@ -132,6 +132,8 @@ interface RightPanelStoreState {
     kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
   ) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
+  /** Stops a new session on `target` from opening here on its own, because another host shows it. */
+  keepDeviceOutOfPanel: (ref: ScopedThreadRef, target: DeviceTabTarget) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
@@ -229,6 +231,9 @@ const terminalSurface = (terminalId: string): RightPanelSurface => ({
   terminalIds: [terminalId],
   activeTerminalId: terminalId,
 });
+
+const deviceSurfaceId = (target: Pick<DeviceTabTarget, "hostId" | "deviceId">) =>
+  `device:${encodeURIComponent(target.hostId)}:${encodeURIComponent(target.deviceId)}` as const;
 
 export type PullRequestSurface = Extract<RightPanelSurface, { kind: "pull-request" }>;
 
@@ -519,8 +524,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       openDevice: (ref, target, automatic = false) =>
         set((state) =>
           (automatic ? automaticUpdate : userAction)(state, scopedThreadKey(ref), (current) => {
-            const id =
-              `device:${encodeURIComponent(target.hostId)}:${encodeURIComponent(target.deviceId)}` as const;
+            const id = deviceSurfaceId(target);
             if (automatic && current.dismissedDeviceSurfaceIds?.includes(id)) return current;
             const surface: RightPanelSurface = { id, kind: "device", target };
             const existing = current.surfaces.find((entry) => entry.id === id);
@@ -537,6 +541,17 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               },
               existing ?? surface,
             );
+          }),
+        ),
+      keepDeviceOutOfPanel: (ref, target) =>
+        set((state) =>
+          automaticUpdate(state, scopedThreadKey(ref), (current) => {
+            const id = deviceSurfaceId(target);
+            if (current.dismissedDeviceSurfaceIds?.includes(id)) return current;
+            return {
+              ...current,
+              dismissedDeviceSurfaceIds: [...(current.dismissedDeviceSurfaceIds ?? []), id],
+            };
           }),
         ),
       renameDevice: (ref, surfaceId, title) =>
