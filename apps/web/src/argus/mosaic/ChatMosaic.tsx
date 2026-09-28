@@ -1,4 +1,5 @@
 import {
+  ArrowLeftRightIcon,
   BuildingIcon,
   MessageSquarePlusIcon,
   PictureInPicture2Icon,
@@ -35,7 +36,7 @@ import { moveFloatRect, resizeFloatRect } from "./mosaicFloat";
 import { MosaicPaneView } from "./MosaicPane";
 import { routeTargetKey, useMosaicStore } from "./mosaicStore";
 import { detachedFloatingPaneIds } from "./mosaicSurfaces";
-import { layoutMosaic, type MosaicDivider } from "./mosaicTree";
+import { dropZoneAt, layoutMosaic, type MosaicDivider, type MosaicDropZone } from "./mosaicTree";
 import { useMosaicActions } from "./useMosaicActions";
 import { useMosaicConfigs } from "./useMosaicConfigs";
 import { useMosaicLayoutSync } from "./useMosaicLayoutSync";
@@ -138,16 +139,49 @@ function DividerHandle({
 
 interface PaneDrag {
   readonly sourceId: string;
-  readonly overId: string | null;
+  readonly over: { readonly paneId: string; readonly zone: MosaicDropZone } | null;
+}
+
+const EDGE_ZONE_INSETS: Record<Exclude<MosaicDropZone, "center">, React.CSSProperties> = {
+  left: { top: GUTTER, bottom: GUTTER, left: GUTTER, right: "50%" },
+  right: { top: GUTTER, bottom: GUTTER, right: GUTTER, left: "50%" },
+  top: { left: GUTTER, right: GUTTER, top: GUTTER, bottom: "50%" },
+  bottom: { left: GUTTER, right: GUTTER, bottom: GUTTER, top: "50%" },
+};
+
+/**
+ * Previews where a dragged pane will land: a dashed outline with a "Swap"
+ * chip over the whole pane, or a solid block over the half it will split into.
+ */
+function DropZoneOverlay({ zone }: { zone: MosaicDropZone }) {
+  if (zone === "center") {
+    return (
+      <div
+        className="pointer-events-none absolute z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10"
+        style={{ inset: GUTTER }}
+      >
+        <span className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground shadow">
+          <ArrowLeftRightIcon className="size-3.5" />
+          Swap
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="pointer-events-none absolute z-20 rounded-lg border-2 border-primary bg-primary/25"
+      style={EDGE_ZONE_INSETS[zone]}
+    />
+  );
 }
 
 /**
- * Drag from a pane's header grip: a docked pane swaps slots with the pane it
- * is dropped on (found by hit-testing the `data-mosaic-pane-id` slots), while
- * a floating pane moves its window.
+ * Drag from a pane's header grip: a docked pane drops on the pane under the
+ * pointer (found by hit-testing the `data-mosaic-pane-id` slots), swapping at
+ * its center or splitting it at an edge, while a floating pane moves its window.
  */
 function usePaneDrag(containerRef: React.RefObject<HTMLDivElement | null>) {
-  const swapPanes = useMosaicStore((state) => state.swapPanes);
+  const dropPane = useMosaicStore((state) => state.dropPane);
   const [drag, setDrag] = useState<PaneDrag | null>(null);
 
   const startDrag = useCallback(
@@ -162,8 +196,8 @@ function usePaneDrag(containerRef: React.RefObject<HTMLDivElement | null>) {
         });
         return;
       }
-      let overId: string | null = null;
-      setDrag({ sourceId, overId });
+      let over: PaneDrag["over"] = null;
+      setDrag({ sourceId, over });
       capturePointerDrag(
         event,
         container,
@@ -171,19 +205,31 @@ function usePaneDrag(containerRef: React.RefObject<HTMLDivElement | null>) {
           const slot = document
             .elementFromPoint(moveEvent.clientX, moveEvent.clientY)
             ?.closest<HTMLElement>("[data-mosaic-pane-id]");
-          const next = slot?.dataset.mosaicPaneId ?? null;
-          const target = next === sourceId ? null : next;
-          if (target === overId) return;
-          overId = target;
-          setDrag({ sourceId, overId });
+          const paneId = slot?.dataset.mosaicPaneId;
+          let next: PaneDrag["over"] = null;
+          if (slot && paneId && paneId !== sourceId) {
+            const bounds = slot.getBoundingClientRect();
+            if (bounds.width > 0 && bounds.height > 0) {
+              const zone = dropZoneAt(
+                (moveEvent.clientX - bounds.left) / bounds.width,
+                (moveEvent.clientY - bounds.top) / bounds.height,
+              );
+              next = { paneId, zone };
+            }
+          }
+          if (next?.paneId === over?.paneId && next?.zone === over?.zone) return;
+          over = next;
+          setDrag({ sourceId, over });
         },
         (endEvent) => {
-          if (endEvent.type === "pointerup" && overId !== null) swapPanes(sourceId, overId);
+          if (endEvent.type === "pointerup" && over !== null) {
+            dropPane(sourceId, over.paneId, over.zone);
+          }
           setDrag(null);
         },
       );
     },
-    [containerRef, swapPanes],
+    [containerRef, dropPane],
   );
 
   return { drag, startDrag };
@@ -364,12 +410,7 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
                     Dock
                   </Button>
                 </div>
-                {drag?.overId === paneId ? (
-                  <div
-                    className="pointer-events-none absolute z-20 rounded-lg border-2 border-dashed border-primary bg-primary/10"
-                    style={{ inset: GUTTER }}
-                  />
-                ) : null}
+                {drag?.over?.paneId === paneId ? <DropZoneOverlay zone={drag.over.zone} /> : null}
               </div>
             ) : null,
           )}
@@ -412,12 +453,7 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
                     onPointerDown={(event) => startFloatResize(paneId, event)}
                   />
                 ) : null}
-                {drag?.overId === paneId ? (
-                  <div
-                    className="pointer-events-none absolute z-20 rounded-lg border-2 border-dashed border-primary bg-primary/10"
-                    style={{ inset: GUTTER }}
-                  />
-                ) : null}
+                {drag?.over?.paneId === paneId ? <DropZoneOverlay zone={drag.over.zone} /> : null}
               </div>
             );
           })}

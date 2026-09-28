@@ -105,9 +105,10 @@ export function buildPresetTree(
 }
 
 /**
- * Puts `newPaneId` next to `targetPaneId`. When the target's parent already
- * splits in `direction`, the new pane joins that split and takes half of the
- * target's share; otherwise the target becomes a two-way split.
+ * Puts `newPaneId` next to `targetPaneId`, after it by default or `before` it.
+ * When the target's parent already splits in `direction`, the new pane joins
+ * that split and takes half of the target's share; otherwise the target
+ * becomes a two-way split.
  */
 export function insertPaneBeside(
   root: MosaicNode | null,
@@ -115,6 +116,7 @@ export function insertPaneBeside(
   newPaneId: string,
   direction: MosaicDirection,
   newId: () => string,
+  side: "before" | "after" = "after",
 ): MosaicNode {
   if (root === null) return paneLeaf(newPaneId);
   const target =
@@ -125,7 +127,8 @@ export function insertPaneBeside(
   const visit = (node: MosaicNode): MosaicNode => {
     if (node.kind === "pane") {
       if (node.paneId !== target) return node;
-      return splitNode(newId(), direction, [node, paneLeaf(newPaneId)]);
+      const inserted = paneLeaf(newPaneId);
+      return splitNode(newId(), direction, side === "before" ? [inserted, node] : [node, inserted]);
     }
     const index = node.children.findIndex(
       (child) => child.kind === "pane" && child.paneId === target,
@@ -133,7 +136,7 @@ export function insertPaneBeside(
     if (index !== -1 && node.direction === direction) {
       const half = node.sizes[index]! / 2;
       const children = [...node.children];
-      children.splice(index + 1, 0, paneLeaf(newPaneId));
+      children.splice(side === "before" ? index : index + 1, 0, paneLeaf(newPaneId));
       const sizes = [...node.sizes];
       sizes.splice(index, 1, half, half);
       return { ...node, children, sizes };
@@ -190,6 +193,50 @@ export function swapPanes(
     return node;
   };
   return visit(root);
+}
+
+/** Where a dragged pane lands on the pane under it: swap in the middle, split at an edge. */
+export type MosaicDropZone = "center" | "left" | "right" | "top" | "bottom";
+
+/** Fraction of each axis, around the middle, that counts as the swap zone. */
+const DROP_CENTER_SPAN = 0.5;
+
+/**
+ * Picks the drop zone for a point given as fractions (0..1) of the target
+ * pane's width and height. The middle box swaps; outside it the nearest edge
+ * wins.
+ */
+export function dropZoneAt(fx: number, fy: number): MosaicDropZone {
+  const reach = DROP_CENTER_SPAN / 2;
+  if (Math.abs(fx - 0.5) <= reach && Math.abs(fy - 0.5) <= reach) return "center";
+  if (Math.min(fx, 1 - fx) <= Math.min(fy, 1 - fy)) return fx < 0.5 ? "left" : "right";
+  return fy < 0.5 ? "top" : "bottom";
+}
+
+/**
+ * Drops `sourcePaneId` on `targetPaneId`. The center swaps the two slots; an
+ * edge takes the source out of its slot (collapsing it like a close) and
+ * splits the target, putting the source on that side.
+ */
+export function movePane(
+  root: MosaicNode | null,
+  sourcePaneId: string,
+  targetPaneId: string,
+  zone: MosaicDropZone,
+  newId: () => string,
+): MosaicNode | null {
+  if (zone === "center") return swapPanes(root, sourcePaneId, targetPaneId);
+  if (root === null || sourcePaneId === targetPaneId) return root;
+  const ids = collectPaneIds(root);
+  if (!ids.includes(sourcePaneId) || !ids.includes(targetPaneId)) return root;
+  return insertPaneBeside(
+    removePane(root, sourcePaneId),
+    targetPaneId,
+    sourcePaneId,
+    zone === "left" || zone === "right" ? "row" : "column",
+    newId,
+    zone === "left" || zone === "top" ? "before" : "after",
+  );
 }
 
 /**

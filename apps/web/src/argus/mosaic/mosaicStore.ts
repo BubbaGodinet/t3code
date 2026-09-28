@@ -21,10 +21,11 @@ import {
   buildPresetTree,
   collectPaneIds,
   insertPaneBeside,
+  movePane,
   removePane,
   resizeSplit,
-  swapPanes,
   type MosaicDirection,
+  type MosaicDropZone,
   type MosaicNode,
   type MosaicPreset,
   type MosaicRect,
@@ -122,7 +123,8 @@ interface MosaicStoreState extends MosaicLayoutSnapshot {
   setPaneDevice: (paneId: string, device: DeviceTabTarget | null) => void;
   closePane: (paneId: string) => void;
   resize: (splitId: string, index: number, deltaPercent: number) => void;
-  swapPanes: (firstPaneId: string, secondPaneId: string) => void;
+  /** Drops a dragged pane on another: swap at the center, split the target at an edge. */
+  dropPane: (sourcePaneId: string, targetPaneId: string, zone: MosaicDropZone) => void;
   applyLayout: (layout: MosaicLayoutDocument) => void;
   setActivePane: (paneId: string | null) => void;
   /** Pops a pane out over its grid slot, or docks it back when it already floats. */
@@ -312,8 +314,10 @@ export const useMosaicStore = create<MosaicStoreState>()(
         }),
       resize: (splitId, index, deltaPercent) =>
         set((state) => ({ root: resizeSplit(state.root, splitId, index, deltaPercent) })),
-      swapPanes: (firstPaneId, secondPaneId) =>
-        set((state) => ({ root: swapPanes(state.root, firstPaneId, secondPaneId) })),
+      dropPane: (sourcePaneId, targetPaneId, zone) =>
+        set((state) => ({
+          root: movePane(state.root, sourcePaneId, targetPaneId, zone, randomUUID),
+        })),
       applyLayout: (layout) =>
         set((state) => ({
           companies: layout.companies,
