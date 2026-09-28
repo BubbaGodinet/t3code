@@ -3,12 +3,19 @@ import {
   BuildingIcon,
   CheckIcon,
   Columns2Icon,
+  GripVerticalIcon,
   MessageSquarePlusIcon,
   Rows2Icon,
   SquareTerminalIcon,
   XIcon,
 } from "lucide-react";
-import { memo, useCallback, useMemo, type CSSProperties } from "react";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import { ThreadRouteView } from "../../components/ThreadRouteView";
 import { Button } from "../../components/ui/button";
@@ -39,6 +46,11 @@ function CompanyMenu({ pane, company }: { pane: MosaicPane; company: MosaicCompa
   const companies = useMosaicStore((state) => state.companies);
   const setPaneCompany = useMosaicStore((state) => state.setPaneCompany);
   const openCompanies = useCompaniesDialog((state) => state.setOpen);
+  const { applyCompanyAgent } = useMosaicActions();
+  const assignCompany = (entry: MosaicCompany) => {
+    setPaneCompany(pane.id, entry.id);
+    void applyCompanyAgent(pane, entry);
+  };
   return (
     <Menu>
       <MenuTrigger
@@ -57,7 +69,7 @@ function CompanyMenu({ pane, company }: { pane: MosaicPane; company: MosaicCompa
       </MenuTrigger>
       <MenuPopup align="start">
         {companies.map((entry) => (
-          <MenuItem key={entry.id} onClick={() => setPaneCompany(pane.id, entry.id)}>
+          <MenuItem key={entry.id} onClick={() => assignCompany(entry)}>
             <span className="size-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
             {entry.name}
             {pane.companyId === entry.id ? <CheckIcon className="ms-auto size-3.5" /> : null}
@@ -186,9 +198,12 @@ function TerminalPanePicker({ pane }: { pane: MosaicPane }) {
 export const MosaicPaneView = memo(function MosaicPaneView({
   paneId,
   active,
+  onStartDrag,
 }: {
   paneId: string;
   active: boolean;
+  /** Begins a drag-to-swap from the header grip; gutters stay dedicated to resizing. */
+  onStartDrag: (paneId: string, event: ReactPointerEvent<HTMLElement>) => void;
 }) {
   const pane = useMosaicStore((state) => state.panes[paneId]);
   const companies = useMosaicStore((state) => state.companies);
@@ -242,6 +257,14 @@ export const MosaicPaneView = memo(function MosaicPaneView({
           color ? { backgroundColor: tint(color, 14), borderColor: tint(color, 35) } : undefined
         }
       >
+        <button
+          type="button"
+          aria-label="Drag onto another pane to swap"
+          className="flex h-5 shrink-0 cursor-grab touch-none items-center rounded text-muted-foreground hover:bg-accent active:cursor-grabbing"
+          onPointerDown={(event) => onStartDrag(pane.id, event)}
+        >
+          <GripVerticalIcon className="size-3.5" />
+        </button>
         <CompanyMenu pane={pane} company={company} />
         <span className="text-muted-foreground/60">/</span>
         {pane.kind === "terminal" ? (

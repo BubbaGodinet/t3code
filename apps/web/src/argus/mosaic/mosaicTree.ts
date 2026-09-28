@@ -174,6 +174,24 @@ export function removePane(root: MosaicNode | null, paneId: string): MosaicNode 
   return { ...root, children, sizes: sizes.map((size) => (size / total) * 100) };
 }
 
+/** Exchanges two panes' slots; each slot keeps its size, so the panes trade places. */
+export function swapPanes(
+  root: MosaicNode | null,
+  firstPaneId: string,
+  secondPaneId: string,
+): MosaicNode | null {
+  if (root === null || firstPaneId === secondPaneId) return root;
+  const ids = collectPaneIds(root);
+  if (!ids.includes(firstPaneId) || !ids.includes(secondPaneId)) return root;
+  const visit = (node: MosaicNode): MosaicNode => {
+    if (node.kind === "split") return { ...node, children: node.children.map(visit) };
+    if (node.paneId === firstPaneId) return paneLeaf(secondPaneId);
+    if (node.paneId === secondPaneId) return paneLeaf(firstPaneId);
+    return node;
+  };
+  return visit(root);
+}
+
 /**
  * Moves the divider between child `index` and `index + 1` of `splitId` by
  * `deltaPercent` of that split's extent, keeping both neighbours above the

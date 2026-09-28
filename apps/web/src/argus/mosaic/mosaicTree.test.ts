@@ -8,6 +8,7 @@ import {
   MIN_PANE_PERCENT,
   removePane,
   resizeSplit,
+  swapPanes,
   type MosaicNode,
 } from "./mosaicTree";
 
@@ -89,6 +90,30 @@ describe("removePane", () => {
     expect(collectPaneIds(next)).toEqual(["a", "c", "d"]);
     expect(next?.kind === "split" && next.sizes).toEqual([50, 25, 25]);
     expect(removePane(removePane(removePane(next, "a"), "c"), "d")).toBeNull();
+  });
+});
+
+describe("swapPanes", () => {
+  it("trades two panes across splits while each slot keeps its size", () => {
+    const tree = resizeSplit(
+      buildPresetTree("two-over-one", ["a", "b", "c"], idFactory()),
+      "split-0",
+      0,
+      20,
+    );
+    const swapped = swapPanes(tree, "a", "c");
+    const rects = Object.fromEntries(
+      layoutMosaic(swapped).panes.map(({ paneId, rect }) => [paneId, rect]),
+    );
+    expect(rects.c).toEqual({ x: 0, y: 0, width: 70, height: 50 });
+    expect(rects.a).toEqual({ x: 0, y: 50, width: 100, height: 50 });
+    expect(rects.b).toEqual({ x: 70, y: 0, width: 30, height: 50 });
+  });
+
+  it("leaves the tree alone for the same pane or an unknown pane", () => {
+    const tree = buildPresetTree("grid-2x2", ["a", "b"], idFactory());
+    expect(swapPanes(tree, "a", "a")).toBe(tree);
+    expect(swapPanes(tree, "a", "missing")).toBe(tree);
   });
 });
 

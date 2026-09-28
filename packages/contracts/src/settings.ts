@@ -1238,6 +1238,14 @@ export const ServerSettings = Schema.Struct({
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  /**
+   * The Argus pane mosaic (tree, pane contents, companies) as an opaque JSON
+   * document owned by the web client. A string so each write replaces the
+   * whole layout instead of deep-merging removed panes back in.
+   */
+  argusMosaicLayout: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -1510,6 +1518,7 @@ export const ServerSettingsPatch = Schema.Struct({
   usagePriceOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),
   ),
+  argusMosaicLayout: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

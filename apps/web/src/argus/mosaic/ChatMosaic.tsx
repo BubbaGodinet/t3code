@@ -1,15 +1,24 @@
 import { BuildingIcon, MessageSquarePlusIcon, SquareTerminalIcon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import { Button } from "../../components/ui/button";
 import { SidebarInset } from "../../components/ui/sidebar";
 import { WorkspacePageHeader } from "../../components/WorkspacePageHeader";
 import { isElectron } from "../../env";
+import { cn } from "../../lib/utils";
 import type { ThreadRouteTarget } from "../../threadRoutes";
 import { CompaniesDialog, useCompaniesDialog } from "./CompaniesDialog";
 import { MosaicPaneView } from "./MosaicPane";
 import { routeTargetKey, useMosaicStore } from "./mosaicStore";
 import { layoutMosaic, type MosaicDivider, type MosaicPreset } from "./mosaicTree";
+import { useMosaicLayoutSync } from "./useMosaicLayoutSync";
 
 const PRESETS: ReadonlyArray<{ preset: MosaicPreset; label: string; title: string }> = [
   { preset: "row", label: "Row", title: "All panes side by side" },
@@ -95,6 +104,54 @@ function DividerHandle({
   );
 }
 
+interface PaneDrag {
+  readonly sourceId: string;
+  readonly overId: string | null;
+}
+
+/**
+ * Drag-to-swap from a pane's header grip. The pointer is captured on the grip,
+ * so the pane under it is found by hit-testing the `data-mosaic-pane-id` slots.
+ */
+function usePaneDrag() {
+  const swapPanes = useMosaicStore((state) => state.swapPanes);
+  const [drag, setDrag] = useState<PaneDrag | null>(null);
+
+  const startDrag = useCallback(
+    (sourceId: string, event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const handle = event.currentTarget;
+      handle.setPointerCapture(event.pointerId);
+      let overId: string | null = null;
+      setDrag({ sourceId, overId });
+      const onMove = (moveEvent: PointerEvent) => {
+        const slot = document
+          .elementFromPoint(moveEvent.clientX, moveEvent.clientY)
+          ?.closest<HTMLElement>("[data-mosaic-pane-id]");
+        const next = slot?.dataset.mosaicPaneId ?? null;
+        const target = next === sourceId ? null : next;
+        if (target === overId) return;
+        overId = target;
+        setDrag({ sourceId, overId });
+      };
+      const onEnd = (endEvent: PointerEvent) => {
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onEnd);
+        handle.removeEventListener("pointercancel", onEnd);
+        if (endEvent.type === "pointerup" && overId !== null) swapPanes(sourceId, overId);
+        setDrag(null);
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onEnd);
+      handle.addEventListener("pointercancel", onEnd);
+    },
+    [swapPanes],
+  );
+
+  return { drag, startDrag };
+}
+
 /**
  * The pane mosaic that replaces the single chat view while enabled. Panes are
  * absolutely positioned from the split tree so reshaping the layout moves a
@@ -109,6 +166,8 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
   const openCompanies = useCompaniesDialog((state) => state.setOpen);
   const containerRef = useRef<HTMLDivElement>(null);
   const layout = useMemo(() => layoutMosaic(root), [root]);
+  const { drag, startDrag } = usePaneDrag();
+  useMosaicLayoutSync(routeTarget);
 
   const routeKey = routeTargetKey(routeTarget);
   const lastRouteKeyRef = useRef<string | null>(null);
@@ -165,7 +224,10 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
         </Button>
       </WorkspacePageHeader>
       <div className="relative min-h-0 flex-1 overflow-hidden p-[3px]">
-        <div ref={containerRef} className="relative h-full w-full">
+        <div
+          ref={containerRef}
+          className={cn("relative h-full w-full", drag && "cursor-grabbing select-none")}
+        >
           {layout.panes.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               Empty grid. Add a chat or terminal pane, or pick a layout.
@@ -174,7 +236,8 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
           {layout.panes.map(({ paneId, rect }) => (
             <div
               key={paneId}
-              className="absolute"
+              data-mosaic-pane-id={paneId}
+              className={cn("absolute", drag?.sourceId === paneId && "opacity-60")}
               style={{
                 left: `${rect.x}%`,
                 top: `${rect.y}%`,
@@ -183,7 +246,17 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
                 padding: GUTTER,
               }}
             >
-              <MosaicPaneView paneId={paneId} active={paneId === activePaneId} />
+              <MosaicPaneView
+                paneId={paneId}
+                active={paneId === activePaneId}
+                onStartDrag={startDrag}
+              />
+              {drag?.overId === paneId ? (
+                <div
+                  className="pointer-events-none absolute z-20 rounded-lg border-2 border-dashed border-primary bg-primary/10"
+                  style={{ inset: GUTTER }}
+                />
+              ) : null}
             </div>
           ))}
           {layout.dividers.map((divider) => (

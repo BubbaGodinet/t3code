@@ -6,12 +6,14 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { randomUUID } from "../../lib/utils";
 import { resolveStorage } from "../../lib/storage";
 import type { ThreadRouteTarget } from "../../threadRoutes";
+import type { MosaicLayoutDocument } from "./mosaicLayout";
 import {
   buildPresetTree,
   collectPaneIds,
   insertPaneBeside,
   removePane,
   resizeSplit,
+  swapPanes,
   type MosaicDirection,
   type MosaicNode,
   type MosaicPreset,
@@ -75,6 +77,8 @@ interface MosaicStoreState extends MosaicLayoutSnapshot {
   ) => string;
   closePane: (paneId: string) => void;
   resize: (splitId: string, index: number, deltaPercent: number) => void;
+  swapPanes: (firstPaneId: string, secondPaneId: string) => void;
+  applyLayout: (layout: MosaicLayoutDocument) => void;
   setActivePane: (paneId: string | null) => void;
   setPaneTarget: (paneId: string, target: ThreadRouteTarget | null) => void;
   setPaneCompany: (paneId: string, companyId: string | null) => void;
@@ -213,6 +217,18 @@ export const useMosaicStore = create<MosaicStoreState>()(
         }),
       resize: (splitId, index, deltaPercent) =>
         set((state) => ({ root: resizeSplit(state.root, splitId, index, deltaPercent) })),
+      swapPanes: (firstPaneId, secondPaneId) =>
+        set((state) => ({ root: swapPanes(state.root, firstPaneId, secondPaneId) })),
+      applyLayout: (layout) =>
+        set((state) => ({
+          companies: layout.companies,
+          panes: layout.panes,
+          root: layout.root,
+          activePaneId:
+            state.activePaneId !== null && layout.panes[state.activePaneId]
+              ? state.activePaneId
+              : (collectPaneIds(layout.root)[0] ?? null),
+        })),
       setActivePane: (paneId) => set({ activePaneId: paneId }),
       setPaneTarget: (paneId, target) =>
         set((state) => {
