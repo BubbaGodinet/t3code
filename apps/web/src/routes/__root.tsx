@@ -14,7 +14,7 @@ import {
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
-import { useArgusCommandCenter } from "../argus/argusCommandCenter";
+import { useArgusMode } from "../argus/argusCommandCenter";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
@@ -327,11 +327,12 @@ function DocumentTitleSync() {
     primaryServerVersion,
   });
 
-  const commandCenter = useArgusCommandCenter();
+  const argusMode = useArgusMode();
 
   useEffect(() => {
-    document.title = commandCenter ? "ARGUS Command" : title;
-  }, [commandCenter, title]);
+    document.title =
+      argusMode === "sanctuary" ? "ARGUS Sanctuary" : argusMode ? "ARGUS Command" : title;
+  }, [argusMode, title]);
 
   return null;
 }

@@ -1,18 +1,24 @@
+import { useLocation, useNavigate } from "@tanstack/react-router";
+
 import { cn } from "../lib/utils";
 import {
   ARGUS_IN_FRAME,
   ARGUS_ORIGIN,
   argusModeTabs,
   runArgusModeAction,
+  useArgusMode,
 } from "./argusCommandCenter";
-
-const TABS = argusModeTabs({ inFrame: ARGUS_IN_FRAME, argusOrigin: ARGUS_ORIGIN });
 
 /**
  * Argus's Command / Sanctuary switcher, in the banner slot of the command
- * center. Command is this grid; Sanctuary goes to the Argus Sanctuary page.
+ * center. Command is the pane grid; Sanctuary is the framing Argus window's
+ * page, or the in-app Sanctuary page when nothing frames T3.
  */
 export function ArgusModeSwitcher({ className }: { className?: string }) {
+  const current = useArgusMode() ?? "command";
+  const currentHref = useLocation({ select: (location) => location.href });
+  const navigate = useNavigate();
+  const tabs = argusModeTabs({ inFrame: ARGUS_IN_FRAME, argusOrigin: ARGUS_ORIGIN, current });
   return (
     <div
       role="tablist"
@@ -22,7 +28,7 @@ export function ArgusModeSwitcher({ className }: { className?: string }) {
         className,
       )}
     >
-      {TABS.map((tab) => (
+      {tabs.map((tab) => (
         <button
           key={tab.mode}
           type="button"
@@ -34,7 +40,12 @@ export function ArgusModeSwitcher({ className }: { className?: string }) {
               ? "bg-accent text-foreground shadow-xs"
               : "text-muted-foreground hover:bg-accent/60 hover:text-foreground active:bg-accent",
           )}
-          onClick={() => runArgusModeAction(tab.action)}
+          onClick={() =>
+            runArgusModeAction(tab.action, {
+              currentHref,
+              navigate: (href) => void navigate({ href }),
+            })
+          }
         >
           {tab.label}
         </button>

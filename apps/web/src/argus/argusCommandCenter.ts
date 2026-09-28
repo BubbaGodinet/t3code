@@ -1,3 +1,5 @@
+import { useLocation } from "@tanstack/react-router";
+
 import { readLocalApi } from "../localApi";
 import { useMosaicStore } from "./mosaic/mosaicStore";
 
@@ -83,13 +85,16 @@ function readArgusOrigin(): string {
 
 export const ARGUS_ORIGIN = readArgusOrigin();
 
+/** The in-app Sanctuary page, used when no Argus window frames T3 (desktop, plain web). */
+export const ARGUS_SANCTUARY_PATH = "/sanctuary";
+
 export type ArgusModeAction =
-  /** This grid already is Command. */
+  /** Command is the pane grid in this window. */
   | { readonly kind: "grid" }
   /** Ask the framing Argus window to route, falling back to navigating the top window. */
   | { readonly kind: "frame"; readonly mode: ArgusMode; readonly url: string }
-  /** No Argus around this page: open Argus's page like a link. */
-  | { readonly kind: "open"; readonly url: string };
+  /** No Argus around this page: stay in this window on an app route. */
+  | { readonly kind: "route"; readonly path: string };
 
 export interface ArgusModeTab {
   readonly mode: ArgusMode;
@@ -99,24 +104,33 @@ export interface ArgusModeTab {
 }
 
 /**
- * Both modes, always. Command is this grid; Sanctuary is an Argus page, so it
- * goes through the framing Argus window when there is one and opens Argus's
- * URL when there is not.
+ * Both modes, always. Command is this grid. Sanctuary goes through the framing
+ * Argus window when there is one; otherwise it is an in-app page, so the
+ * desktop app never hands it to the system browser.
  */
 export function argusModeTabs(input: {
   readonly inFrame: boolean;
   readonly argusOrigin: string;
+  readonly current: ArgusMode;
 }): ReadonlyArray<ArgusModeTab> {
-  const sanctuaryUrl = new URL("/sanctuary", input.argusOrigin).toString();
   return [
-    { mode: "command", label: "Command", selected: true, action: { kind: "grid" } },
+    {
+      mode: "command",
+      label: "Command",
+      selected: input.current === "command",
+      action: { kind: "grid" },
+    },
     {
       mode: "sanctuary",
       label: "Sanctuary",
-      selected: false,
+      selected: input.current === "sanctuary",
       action: input.inFrame
-        ? { kind: "frame", mode: "sanctuary", url: sanctuaryUrl }
-        : { kind: "open", url: sanctuaryUrl },
+        ? {
+            kind: "frame",
+            mode: "sanctuary",
+            url: new URL("/sanctuary", input.argusOrigin).toString(),
+          }
+        : { kind: "route", path: ARGUS_SANCTUARY_PATH },
     },
   ];
 }
@@ -139,13 +153,23 @@ function navigateTop(url: string) {
   }
 }
 
-export function runArgusModeAction(action: ArgusModeAction) {
+/** Where Command returns to after an in-app Sanctuary visit. */
+let gridHrefBeforeSanctuary: string | null = null;
+
+export function runArgusModeAction(
+  action: ArgusModeAction,
+  router: { readonly currentHref: string; readonly navigate: (href: string) => void },
+) {
+  const onSanctuary = router.currentHref.split(/[?#]/)[0] === ARGUS_SANCTUARY_PATH;
   if (action.kind === "grid") {
     useMosaicStore.getState().setEnabled(true);
+    if (onSanctuary) router.navigate(gridHrefBeforeSanctuary ?? "/");
     return;
   }
-  if (action.kind === "open") {
-    openArgusUrl(action.url);
+  if (action.kind === "route") {
+    if (onSanctuary) return;
+    gridHrefBeforeSanctuary = router.currentHref;
+    router.navigate(action.path);
     return;
   }
   const fallback = window.setTimeout(() => {
@@ -165,11 +189,20 @@ export function runArgusModeAction(action: ArgusModeAction) {
   window.parent.postMessage({ type: ARGUS_SELECT_MODE_MESSAGE, mode: action.mode }, "*");
 }
 
+/** Which Argus mode this window shows, or null outside the Argus command center. */
+export function useArgusMode(): ArgusMode | null {
+  const onSanctuary = useLocation({
+    select: (location) => location.pathname === ARGUS_SANCTUARY_PATH,
+  });
+  const mosaicEnabled = useMosaicStore((state) => state.enabled);
+  if (onSanctuary) return "sanctuary";
+  return mosaicEnabled || ARGUS_EMBEDDED ? "command" : null;
+}
+
 /**
- * The Argus command-center view: the pane grid, or any page framed by Argus.
- * Its chrome carries the Argus mode switcher instead of T3 Code branding.
+ * The Argus command-center view: the pane grid, in-app Sanctuary, or any page
+ * framed by Argus. Its chrome carries the Argus mode switcher instead of T3 Code branding.
  */
 export function useArgusCommandCenter(): boolean {
-  const mosaicEnabled = useMosaicStore((state) => state.enabled);
-  return mosaicEnabled || ARGUS_EMBEDDED;
+  return useArgusMode() !== null;
 }
