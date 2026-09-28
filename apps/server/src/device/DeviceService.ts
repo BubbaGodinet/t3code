@@ -38,6 +38,7 @@ import {
 import * as FileSystem from "effect/FileSystem";
 import { resolveNodeExecutable, nodeRuntimeUnavailableMessage } from "@t3tools/shared/nodeRuntime";
 import * as Path from "effect/Path";
+import { withStoppedAvds } from "./avdList.ts";
 import { ensureAgentDevice } from "./DeviceToolchain.ts";
 import * as ServerConfig from "../config.ts";
 import {
@@ -377,7 +378,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
       booted: device.booted,
       physical: device.physical,
     });
-    const devices = [...list.simulators, ...list.emulators].map(toSummary);
+    let devices = [...list.simulators, ...list.emulators].map(toSummary);
     const host = yield* resolveHost(ready.hostId);
     if ((yield* host.platformAvailability("android")).available) {
       const avds = yield* ready.run("emulator", ["-list-avds"]);
@@ -389,22 +390,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
           cause: avds,
         });
       }
-      for (const name of avds.stdout
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)) {
-        if (!devices.some((device) => device.platform === "android" && device.name === name)) {
-          devices.push({
-            hostId: ready.hostId,
-            id: name,
-            name,
-            platform: "android",
-            version: "Android",
-            booted: false,
-            physical: false,
-          });
-        }
-      }
+      devices = withStoppedAvds(devices, ready.hostId, avds.stdout);
     }
     return { devices, detail: list.errors?.map((error) => error.message).join("\n") || undefined };
   });

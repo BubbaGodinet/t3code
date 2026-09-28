@@ -4,10 +4,12 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   CheckIcon,
   ChevronDownIcon,
+  GlobeIcon,
   LayersIcon,
   MessageSquareIcon,
   PictureInPicture2Icon,
   SaveIcon,
+  SmartphoneIcon,
   SquareTerminalIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -34,6 +36,18 @@ import { useMosaicStore } from "./mosaicStore";
 import type { useMosaicConfigs } from "./useMosaicConfigs";
 
 type MosaicConfigs = ReturnType<typeof useMosaicConfigs>;
+
+const PANE_KIND_ICONS = {
+  chat: MessageSquareIcon,
+  terminal: SquareTerminalIcon,
+  browser: GlobeIcon,
+  device: SmartphoneIcon,
+} as const;
+
+function PaneKindIcon({ kind, className }: { kind: MosaicPreviewBox["kind"]; className: string }) {
+  const Icon = PANE_KIND_ICONS[kind];
+  return <Icon className={className} />;
+}
 
 /** Opaque so floating boxes cover the boxes under them. */
 function boxFill(color: string | null): string {
@@ -137,13 +151,13 @@ function LayoutPreview({ boxes }: { boxes: ReadonlyArray<MosaicPreviewBox> }) {
           >
             <span className="truncate font-semibold">{box.companyName ?? "No company"}</span>
             <span className="flex min-w-0 items-center gap-1 truncate text-foreground/80">
-              {box.kind === "terminal" ? (
-                <>
-                  <SquareTerminalIcon className="size-3 shrink-0" />
-                  Terminal
-                </>
-              ) : (
+              {box.kind === "chat" ? (
                 (box.agent ?? "Default agent")
+              ) : (
+                <>
+                  <PaneKindIcon kind={box.kind} className="size-3 shrink-0" />
+                  {box.title}
+                </>
               )}
             </span>
             {box.floating ? (
@@ -168,18 +182,15 @@ function PaneDetails({ boxes }: { boxes: ReadonlyArray<MosaicPreviewBox> }) {
             className="size-2.5 shrink-0 rounded-full"
             style={{ backgroundColor: box.color ?? "var(--muted-foreground)" }}
           />
-          {box.kind === "terminal" ? (
-            <SquareTerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <MessageSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
+          <PaneKindIcon kind={box.kind} className="size-3.5 shrink-0 text-muted-foreground" />
+
           <div className="flex min-w-0 flex-1 flex-col">
             <span className="truncate font-medium">
               {box.companyName ?? "No company"}
               {box.repo ? <span className="text-muted-foreground"> · {box.repo}</span> : null}
             </span>
             <span className="truncate text-muted-foreground">
-              {box.kind === "terminal" ? "Terminal" : `Chat · ${box.title}`}
+              {box.kind === "chat" ? `Chat · ${box.title}` : box.title}
               {box.kind === "chat" ? ` · ${box.agent ?? "Default agent"}` : ""}
             </span>
           </div>

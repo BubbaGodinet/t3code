@@ -148,6 +148,36 @@ describe("mosaic layout document", () => {
     expect(parseMosaicLayout(JSON.stringify({ ...saved, panes: withoutTerminal }))).toBeNull();
   });
 
+  it("keeps a browser floating over the grid and a device pane in the grid", () => {
+    const original = layout();
+    const withSurfaces: MosaicLayoutDocument = {
+      ...original,
+      panes: {
+        ...original.panes,
+        browser: {
+          id: "browser",
+          kind: "browser",
+          companyId: "acme",
+          source: { kind: "thread", threadRef },
+          url: "http://localhost:5173/",
+        },
+        phone: {
+          id: "phone",
+          kind: "device",
+          companyId: "acme",
+          source: { kind: "thread", threadRef },
+          device: { hostId: "local", deviceId: "UDID-1", platform: "ios", name: "iPhone 18 Pro" },
+        },
+      },
+      root: buildPresetTree("row", ["chat", "draft", "term", "phone"], () => "split"),
+      floating: { browser: { x: 30, y: 20, width: 40, height: 50 } },
+    };
+    const restored = parseMosaicLayout(serializeMosaicLayout(withSurfaces))!;
+    expect(restored.panes.browser).toEqual(withSurfaces.panes.browser);
+    expect(restored.panes.phone).toEqual(withSurfaces.panes.phone);
+    expect(restored.floating).toEqual(withSurfaces.floating);
+  });
+
   it("drops panes the tree no longer reaches", () => {
     const saved = JSON.parse(serializeMosaicLayout(layout()));
     saved.panes.orphan = { id: "orphan", kind: "chat", companyId: null, target: null };

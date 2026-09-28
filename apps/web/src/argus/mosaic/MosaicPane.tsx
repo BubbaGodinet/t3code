@@ -3,10 +3,12 @@ import {
   BuildingIcon,
   CheckIcon,
   Columns2Icon,
+  GlobeIcon,
   GripVerticalIcon,
   MessageSquarePlusIcon,
   PictureInPicture2Icon,
   Rows2Icon,
+  SmartphoneIcon,
   SquareTerminalIcon,
   XIcon,
 } from "lucide-react";
@@ -34,6 +36,12 @@ import {
   type MosaicCompany,
   type MosaicPane,
 } from "./mosaicStore";
+import {
+  BrowserSurfaceView,
+  DeviceSurfaceView,
+  ShowInChatButton,
+  SurfaceLaunchMenus,
+} from "./SurfacePanes";
 import { TerminalPane } from "./TerminalPane";
 import { useMosaicActions } from "./useMosaicActions";
 
@@ -220,7 +228,13 @@ export const MosaicPaneView = memo(function MosaicPaneView({
   const setPaneTarget = useMosaicStore((state) => state.setPaneTarget);
   const { focusPane, closePane } = useMosaicActions();
   const chatTarget = pane?.kind === "chat" ? pane.target : null;
-  const threadShell = useThreadShell(chatTarget?.kind === "server" ? chatTarget.threadRef : null);
+  const sessionThreadRef =
+    chatTarget?.kind === "server"
+      ? chatTarget.threadRef
+      : (pane?.kind === "browser" || pane?.kind === "device") && pane.source?.kind === "thread"
+        ? pane.source.threadRef
+        : null;
+  const threadShell = useThreadShell(sessionThreadRef);
   const draftSession = useComposerDraftStore((store) =>
     chatTarget?.kind === "draft" ? store.getDraftSession(chatTarget.draftId) : null,
   );
@@ -242,10 +256,23 @@ export const MosaicPaneView = memo(function MosaicPaneView({
   const frameStyle: CSSProperties = {
     borderColor: color ? (active ? color : tint(color, 45)) : undefined,
   };
+  const sessionLabel = threadShell?.title ? ` · ${threadShell.title}` : "";
   const title =
     pane.kind === "terminal"
       ? "Terminal"
-      : (threadShell?.title ?? (chatTarget ? "New chat" : "Empty pane"));
+      : pane.kind === "browser"
+        ? `Browser${sessionLabel}`
+        : pane.kind === "device"
+          ? `${pane.device?.name ?? "Emulator"}${sessionLabel}`
+          : (threadShell?.title ?? (chatTarget ? "New chat" : "Empty pane"));
+  const KindIcon =
+    pane.kind === "terminal"
+      ? SquareTerminalIcon
+      : pane.kind === "browser"
+        ? GlobeIcon
+        : pane.kind === "device"
+          ? SmartphoneIcon
+          : null;
   const agent =
     pane.kind === "chat"
       ? (threadShell?.modelSelection.model ?? company?.modelSelection?.model ?? null)
@@ -276,9 +303,7 @@ export const MosaicPaneView = memo(function MosaicPaneView({
         </button>
         <CompanyMenu pane={pane} company={company} />
         <span className="text-muted-foreground/60">/</span>
-        {pane.kind === "terminal" ? (
-          <SquareTerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : null}
+        {KindIcon ? <KindIcon className="size-3.5 shrink-0 text-muted-foreground" /> : null}
         <button
           type="button"
           className="min-w-0 flex-1 truncate text-left text-xs"
@@ -290,6 +315,10 @@ export const MosaicPaneView = memo(function MosaicPaneView({
           <span className="hidden shrink-0 truncate text-[11px] text-muted-foreground @[28rem]/pane:inline">
             {agent}
           </span>
+        ) : null}
+        <SurfaceLaunchMenus pane={pane} company={company} />
+        {pane.kind === "browser" || pane.kind === "device" ? (
+          <ShowInChatButton pane={pane} />
         ) : null}
         <Button
           aria-label={floating ? "Dock pane" : "Pop out pane"}
@@ -343,6 +372,10 @@ export const MosaicPaneView = memo(function MosaicPaneView({
             ) : (
               <ChatPanePicker pane={pane} company={company} />
             )
+          ) : pane.kind === "browser" ? (
+            <BrowserSurfaceView pane={pane} company={company} />
+          ) : pane.kind === "device" ? (
+            <DeviceSurfaceView pane={pane} company={company} />
           ) : company?.projectRef ? (
             <TerminalPane pane={pane} company={company} active={active} />
           ) : (

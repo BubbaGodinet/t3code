@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 
 import { clampFloatRect, type MosaicFloatRect } from "./mosaicFloat";
 import type { MosaicCompany, MosaicPane } from "./mosaicStore";
+import { detachedFloatingPaneIds } from "./mosaicSurfaces";
 import { collectPaneIds, type MosaicNode } from "./mosaicTree";
 
 /**
@@ -16,7 +17,10 @@ export interface MosaicLayoutDocument {
   readonly companies: ReadonlyArray<MosaicCompany>;
   readonly panes: Readonly<Record<string, MosaicPane>>;
   readonly root: MosaicNode | null;
-  /** Popped-out panes by pane id; each still holds its slot in `root`. */
+  /**
+   * Floating windows by pane id. A pane popped out of the grid still holds its
+   * slot in `root`; a browser or device opened to float holds none.
+   */
   readonly floating: Readonly<Record<string, MosaicFloatRect>>;
   /** The model each shown thread was on at the last explicit save, by scoped thread key. */
   readonly agents: Readonly<Record<string, ModelSelection>>;
@@ -48,6 +52,13 @@ const PaneTarget = Schema.NullOr(
   ]),
 );
 
+const SurfaceSource = Schema.NullOr(
+  Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("thread"), threadRef: ScopedThreadRef }),
+    Schema.Struct({ kind: Schema.Literal("terminal"), threadRef: ScopedThreadRef }),
+  ]),
+);
+
 const MosaicPaneSchema = Schema.Union([
   Schema.Struct({
     id: Schema.String,
@@ -61,6 +72,27 @@ const MosaicPaneSchema = Schema.Union([
     companyId: Schema.NullOr(Schema.String),
     sessionThreadId: Schema.String,
     terminalId: Schema.String,
+  }),
+  Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("browser"),
+    companyId: Schema.NullOr(Schema.String),
+    source: SurfaceSource,
+    url: Schema.NullOr(Schema.String),
+  }),
+  Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("device"),
+    companyId: Schema.NullOr(Schema.String),
+    source: SurfaceSource,
+    device: Schema.NullOr(
+      Schema.Struct({
+        hostId: Schema.String,
+        deviceId: Schema.String,
+        platform: Schema.Literals(["ios", "android"]),
+        name: Schema.String,
+      }),
+    ),
   }),
 ]);
 
@@ -123,7 +155,7 @@ function shownThreadKeys(layout: Pick<MosaicLayoutDocument, "panes" | "root">): 
  * and no draft text ever reaches the document.
  */
 export function serializeMosaicLayout(layout: MosaicLayoutDocument): string {
-  const paneIds = new Set(collectPaneIds(layout.root));
+  const paneIds = new Set([...collectPaneIds(layout.root), ...detachedFloatingPaneIds(layout)]);
   const threadKeys = shownThreadKeys(layout);
   return JSON.stringify({
     version: MOSAIC_LAYOUT_VERSION,
@@ -188,11 +220,14 @@ export function parseMosaicLayout(raw: string | null | undefined): MosaicLayoutD
   if (new Set(paneIds).size !== paneIds.length || paneIds.some((id) => panes[id]?.id !== id)) {
     return null;
   }
-  const reachable = new Set(paneIds);
-  // Panes outside the tree are unreachable; drop them rather than carry them forever.
+  const floatingOnly = Object.keys(decoded.value.floating ?? {}).filter(
+    (id) => !paneIds.includes(id) && panes[id]?.id === id,
+  );
+  const reachable = new Set([...paneIds, ...floatingOnly]);
+  // Panes neither in the tree nor floating are unreachable; drop them rather than carry them forever.
   return {
     companies,
-    panes: Object.fromEntries(paneIds.map((id) => [id, panes[id]!])),
+    panes: Object.fromEntries([...reachable].map((id) => [id, panes[id]!])),
     root,
     floating: Object.fromEntries(
       Object.entries(decoded.value.floating ?? {})

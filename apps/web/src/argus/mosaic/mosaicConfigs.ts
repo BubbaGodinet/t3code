@@ -3,7 +3,8 @@ import type { ModelSelection, ScopedProjectRef, ScopedThreadRef } from "@t3tools
 import * as Schema from "effect/Schema";
 
 import type { MosaicLayoutDocument } from "./mosaicLayout";
-import { resolvePaneCompany } from "./mosaicStore";
+import { resolvePaneCompany, type MosaicPane } from "./mosaicStore";
+import { detachedFloatingPaneIds } from "./mosaicSurfaces";
 import { layoutMosaic, type MosaicRect } from "./mosaicTree";
 
 /**
@@ -88,7 +89,7 @@ export function upsertMosaicConfig(
 
 export interface MosaicPreviewBox {
   readonly paneId: string;
-  readonly kind: "chat" | "terminal";
+  readonly kind: MosaicPane["kind"];
   /** Where the pane shows, in grid percent: its floating window, or its slot. */
   readonly rect: MosaicRect;
   /** Its slot in the split tree, which a floating pane keeps. */
@@ -121,13 +122,25 @@ export function buildMosaicPreview(
   layout: Pick<MosaicLayoutDocument, "companies" | "panes" | "root" | "floating" | "agents">,
   lookups: MosaicPreviewLookups,
 ): ReadonlyArray<MosaicPreviewBox> {
-  const boxes = layoutMosaic(layout.root).panes.flatMap(({ paneId, rect: slot }) => {
+  const slots = [
+    ...layoutMosaic(layout.root).panes,
+    ...detachedFloatingPaneIds(layout).map((paneId) => ({
+      paneId,
+      rect: layout.floating[paneId]!,
+    })),
+  ];
+  const boxes = slots.flatMap(({ paneId, rect: slot }) => {
     const pane = layout.panes[paneId];
     if (!pane) return [];
-    const thread =
-      pane.kind === "chat" && pane.target?.kind === "server"
-        ? lookups.thread(pane.target.threadRef)
-        : null;
+    const threadRef =
+      pane.kind === "chat"
+        ? pane.target?.kind === "server"
+          ? pane.target.threadRef
+          : null
+        : (pane.kind === "browser" || pane.kind === "device") && pane.source?.kind === "thread"
+          ? pane.source.threadRef
+          : null;
+    const thread = threadRef ? lookups.thread(threadRef) : null;
     const company = resolvePaneCompany(layout.companies, pane, thread?.projectRef ?? null);
     const projectRef = thread?.projectRef ?? company?.projectRef ?? null;
     let agent: ModelSelection | null = null;
@@ -152,7 +165,11 @@ export function buildMosaicPreview(
       title:
         pane.kind === "terminal"
           ? "Terminal"
-          : (thread?.title ?? (pane.target ? "New chat" : "Empty pane")),
+          : pane.kind === "browser"
+            ? "Browser"
+            : pane.kind === "device"
+              ? (pane.device?.name ?? "Emulator")
+              : (thread?.title ?? (pane.target ? "New chat" : "Empty pane")),
     };
     return [box];
   });

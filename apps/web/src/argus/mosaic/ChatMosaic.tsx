@@ -34,6 +34,7 @@ import { ConfigurationSwitcher, SaveConfigurationButton } from "./MosaicConfigCo
 import { moveFloatRect, resizeFloatRect } from "./mosaicFloat";
 import { MosaicPaneView } from "./MosaicPane";
 import { routeTargetKey, useMosaicStore } from "./mosaicStore";
+import { detachedFloatingPaneIds } from "./mosaicSurfaces";
 import { layoutMosaic, type MosaicDivider, type MosaicPreset } from "./mosaicTree";
 import { useMosaicActions } from "./useMosaicActions";
 import { useMosaicConfigs } from "./useMosaicConfigs";
@@ -265,10 +266,27 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
   useMosaicLayoutSync(routeTarget);
   const { configs, ready, saveConfig, loadConfig } = useMosaicConfigs();
 
+  const panes = useMosaicStore((state) => state.panes);
+  const shownPanes = useMemo(
+    () => [
+      ...layout.panes,
+      ...detachedFloatingPaneIds({ panes, root, floating }).map((paneId) => ({
+        paneId,
+        rect: floating[paneId]!,
+      })),
+    ],
+    [floating, layout, panes, root],
+  );
+
   const toggleFloat = useCallback(
     (paneId: string) => {
+      const store = useMosaicStore.getState();
+      if (store.floating[paneId]) {
+        store.dockFloating(paneId);
+        return;
+      }
       const slot = layout.panes.find((entry) => entry.paneId === paneId)?.rect;
-      if (slot) useMosaicStore.getState().toggleFloating(paneId, slot);
+      if (slot) store.toggleFloating(paneId, slot);
     },
     [layout],
   );
@@ -342,7 +360,7 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
           ref={containerRef}
           className={cn("relative h-full w-full", drag && "cursor-grabbing select-none")}
         >
-          {layout.panes.length === 0 ? (
+          {shownPanes.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               Empty grid. Add a chat or terminal pane, or pick a layout.
             </div>
@@ -377,7 +395,7 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
               </div>
             ) : null,
           )}
-          {layout.panes.map(({ paneId, rect }) => {
+          {shownPanes.map(({ paneId, rect }) => {
             const float = floating[paneId];
             const box = float ?? rect;
             return (

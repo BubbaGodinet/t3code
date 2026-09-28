@@ -5,9 +5,18 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { randomUUID } from "../../lib/utils";
 import { resolveStorage } from "../../lib/storage";
+import type { DeviceTabTarget } from "../../rightPanelStore";
 import type { ThreadRouteTarget } from "../../threadRoutes";
 import { initialFloatRect, type MosaicFloatRect } from "./mosaicFloat";
 import type { MosaicLayoutDocument } from "./mosaicLayout";
+import {
+  dockFloatingPane,
+  findSourcePaneId,
+  placeSurfacePane,
+  type MosaicSurfaceKind,
+  type MosaicSurfacePlacement,
+  type MosaicSurfaceSource,
+} from "./mosaicSurfaces";
 import {
   buildPresetTree,
   collectPaneIds,
@@ -44,6 +53,21 @@ export type MosaicPane =
       /** Terminal sessions are keyed by thread id on the server; this one belongs to no thread. */
       readonly sessionThreadId: string;
       readonly terminalId: string;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "browser";
+      readonly companyId: string | null;
+      readonly source: MosaicSurfaceSource | null;
+      /** A page the user pinned; null follows the session's preview or dev server. */
+      readonly url: string | null;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "device";
+      readonly companyId: string | null;
+      readonly source: MosaicSurfaceSource | null;
+      readonly device: DeviceTabTarget | null;
     };
 
 export type MosaicPaneKind = MosaicPane["kind"];
@@ -80,9 +104,21 @@ interface MosaicStoreState extends MosaicLayoutSnapshot {
   setActiveConfig: (configId: string | null) => void;
   applyPreset: (preset: MosaicPreset) => void;
   addPane: (
-    kind: MosaicPaneKind,
+    kind: "chat" | "terminal",
     options?: { beside?: string | null; direction?: MosaicDirection; companyId?: string | null },
   ) => string;
+  /** Opens a browser or device for `source` beside the pane it came from, or floating over the grid. */
+  openSurfacePane: (input: {
+    kind: MosaicSurfaceKind;
+    placement: Exclude<MosaicSurfacePlacement, "chat">;
+    source: MosaicSurfaceSource | null;
+    companyId: string | null;
+    origin: { paneId: string | null; slot: MosaicRect | null };
+  }) => string;
+  /** Docks a floating pane: back into its slot, or into the grid beside its session's pane. */
+  dockFloating: (paneId: string) => void;
+  setBrowserUrl: (paneId: string, url: string | null) => void;
+  setPaneDevice: (paneId: string, device: DeviceTabTarget | null) => void;
   closePane: (paneId: string) => void;
   resize: (splitId: string, index: number, deltaPercent: number) => void;
   swapPanes: (firstPaneId: string, secondPaneId: string) => void;
@@ -103,7 +139,7 @@ export function routeTargetKey(target: ThreadRouteTarget): string {
   return target.kind === "server" ? scopedThreadKey(target.threadRef) : `draft:${target.draftId}`;
 }
 
-function createPane(kind: MosaicPaneKind, companyId: string | null): MosaicPane {
+function createPane(kind: "chat" | "terminal", companyId: string | null): MosaicPane {
   const id = randomUUID();
   return kind === "chat"
     ? { id, kind, companyId, target: null }
@@ -236,6 +272,33 @@ export const useMosaicStore = create<MosaicStoreState>()(
         });
         return pane.id;
       },
+      openSurfacePane: ({ kind, placement, source, companyId, origin }) => {
+        const id = randomUUID();
+        const pane: MosaicPane =
+          kind === "browser"
+            ? { id, kind, companyId, source, url: null }
+            : { id, kind, companyId, source, device: null };
+        set((state) => placeSurfacePane(state, pane, placement, origin, randomUUID));
+        return id;
+      },
+      dockFloating: (paneId) =>
+        set((state) => {
+          const pane = state.panes[paneId];
+          const source = pane?.kind === "browser" || pane?.kind === "device" ? pane.source : null;
+          return dockFloatingPane(state, paneId, findSourcePaneId(state, source), randomUUID);
+        }),
+      setBrowserUrl: (paneId, url) =>
+        set((state) => {
+          const pane = state.panes[paneId];
+          if (pane?.kind !== "browser" || pane.url === url) return state;
+          return { panes: { ...state.panes, [paneId]: { ...pane, url } } };
+        }),
+      setPaneDevice: (paneId, device) =>
+        set((state) => {
+          const pane = state.panes[paneId];
+          if (pane?.kind !== "device") return state;
+          return { panes: { ...state.panes, [paneId]: { ...pane, device } } };
+        }),
       closePane: (paneId) =>
         set((state) => {
           const root = removePane(state.root, paneId);
