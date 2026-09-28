@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useCallback, useMemo } from "react";
@@ -18,6 +17,7 @@ import {
 import { captureThreadAgents, parseMosaicLayout, serializeMosaicLayout } from "./mosaicLayout";
 import { useMosaicStore } from "./mosaicStore";
 import { collectPaneIds } from "./mosaicTree";
+import { useReportedServerSettings } from "./reportedSettings";
 import { useMosaicActions } from "./useMosaicActions";
 
 export type MosaicConfigSaveResult =
@@ -32,9 +32,8 @@ export type MosaicConfigSaveResult =
  */
 export function useMosaicConfigs() {
   const environmentId = usePrimaryEnvironmentId();
-  // `undefined` until the server config loads.
-  const raw = useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings
-    .argusMosaicConfigs;
+  // `undefined` until the server reports its config; a stale cached list would drop configs on save.
+  const raw = useReportedServerSettings(environmentId)?.argusMosaicConfigs;
   const configs = useMemo(() => parseMosaicConfigs(raw), [raw]);
   const persistSettings = useAtomCommand(serverEnvironment.updateSettings, {
     reportFailure: false,

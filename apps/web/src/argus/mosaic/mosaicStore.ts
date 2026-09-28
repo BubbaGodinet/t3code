@@ -98,6 +98,7 @@ interface MosaicStoreState extends MosaicLayoutSnapshot {
   floating: Readonly<Record<string, MosaicFloatRect>>;
   agents: MosaicLayoutDocument["agents"];
   savedAt: string | null;
+  editedAt: string | null;
   /** The named configuration last saved or loaded into the grid, on this client. */
   activeConfigId: string | null;
   setEnabled: (enabled: boolean) => void;
@@ -222,6 +223,7 @@ export const useMosaicStore = create<MosaicStoreState>()(
       floating: {},
       agents: {},
       savedAt: null,
+      editedAt: null,
       activeConfigId: null,
       panes: {},
       root: null,
@@ -320,6 +322,7 @@ export const useMosaicStore = create<MosaicStoreState>()(
           floating: layout.floating,
           agents: layout.agents,
           savedAt: layout.savedAt,
+          editedAt: layout.editedAt,
           activePaneId:
             state.activePaneId !== null && layout.panes[state.activePaneId]
               ? state.activePaneId
@@ -379,6 +382,7 @@ export const useMosaicStore = create<MosaicStoreState>()(
         floating: state.floating,
         agents: state.agents,
         savedAt: state.savedAt,
+        editedAt: state.editedAt,
         activeConfigId: state.activeConfigId,
         activePaneId: state.activePaneId,
       }),

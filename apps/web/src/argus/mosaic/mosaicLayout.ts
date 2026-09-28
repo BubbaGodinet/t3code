@@ -10,8 +10,9 @@ import { collectPaneIds, type MosaicNode } from "./mosaicTree";
 /**
  * The part of the mosaic that follows the user between clients. It is saved as
  * one JSON string in the primary server's settings (`argusMosaicLayout`), so a
- * reload, another browser, or the desktop app see the same grid. Which pane has
- * focus and whether the grid is open stay per client.
+ * reload, an app restart, another browser, or the desktop app see the same
+ * grid and companies. Which pane has focus and whether the grid is open stay
+ * per client.
  */
 export interface MosaicLayoutDocument {
   readonly companies: ReadonlyArray<MosaicCompany>;
@@ -26,6 +27,11 @@ export interface MosaicLayoutDocument {
   readonly agents: Readonly<Record<string, ModelSelection>>;
   /** When the user last pressed Save configuration (ISO time). */
   readonly savedAt: string | null;
+  /**
+   * When a client last changed this layout after loading the server's copy
+   * (ISO time). The newer of the server copy and a client's cached copy wins.
+   */
+  readonly editedAt: string | null;
 }
 
 const MOSAIC_LAYOUT_VERSION = 1;
@@ -103,28 +109,32 @@ const FloatRectSchema = Schema.Struct({
   height: Schema.Finite,
 });
 
+const MosaicCompanySchema = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  color: Schema.String,
+  projectRef: Schema.NullOr(ScopedProjectRef),
+  modelSelection: Schema.NullOr(ModelSelection),
+});
+
 // Fields after `root` were added within version 1, so documents without them still load.
+// Companies and panes decode one by one so a single bad entry cannot cost the whole list.
 const MosaicLayoutDocumentSchema = Schema.Struct({
   version: Schema.Literal(MOSAIC_LAYOUT_VERSION),
-  companies: Schema.Array(
-    Schema.Struct({
-      id: Schema.String,
-      name: Schema.String,
-      color: Schema.String,
-      projectRef: Schema.NullOr(ScopedProjectRef),
-      modelSelection: Schema.NullOr(ModelSelection),
-    }),
-  ),
-  panes: Schema.Record(Schema.String, MosaicPaneSchema),
+  companies: Schema.Array(Schema.Unknown),
+  panes: Schema.Record(Schema.String, Schema.Unknown),
   root: Schema.NullOr(MosaicNodeSchema),
   floating: Schema.optionalKey(Schema.Record(Schema.String, FloatRectSchema)),
   agents: Schema.optionalKey(Schema.Record(Schema.String, ModelSelection)),
   savedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  editedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 
 const decodeLayoutDocument = Schema.decodeUnknownOption(
   Schema.fromJsonString(MosaicLayoutDocumentSchema),
 );
+const decodeCompany = Schema.decodeUnknownOption(MosaicCompanySchema);
+const decodePane = Schema.decodeUnknownOption(MosaicPaneSchema);
 
 function sortedEntries<T>(
   record: Readonly<Record<string, T>>,
@@ -172,6 +182,7 @@ export function serializeMosaicLayout(layout: MosaicLayoutDocument): string {
     floating: sortedEntries(layout.floating, (paneId) => paneIds.has(paneId)),
     agents: sortedEntries(layout.agents, (threadKey) => threadKeys.has(threadKey)),
     savedAt: layout.savedAt,
+    editedAt: layout.editedAt,
   });
 }
 
@@ -210,23 +221,42 @@ export function withLocalDrafts(
   return panes ? { ...layout, panes } : layout;
 }
 
-/** Reads a saved layout, or `null` when it is missing, from a newer build, or inconsistent. */
+/**
+ * Reads a saved layout, or `null` when it is missing, malformed, or from a
+ * newer build. Companies that fail to decode are dropped one by one; a grid
+ * whose tree does not match its panes loads empty but keeps the companies.
+ */
 export function parseMosaicLayout(raw: string | null | undefined): MosaicLayoutDocument | null {
   if (!raw) return null;
   const decoded = decodeLayoutDocument(raw);
   if (decoded._tag === "None") return null;
-  const { companies, panes, root } = decoded.value;
+  const companies = decoded.value.companies.flatMap((entry) => {
+    const company = decodeCompany(entry);
+    return company._tag === "Some" ? [company.value] : [];
+  });
+  const panes: Record<string, MosaicPane> = {};
+  for (const [id, entry] of Object.entries(decoded.value.panes)) {
+    const pane = decodePane(entry);
+    if (pane._tag === "Some" && pane.value.id === id) panes[id] = pane.value;
+  }
+  const document = {
+    companies,
+    agents: decoded.value.agents ?? {},
+    savedAt: decoded.value.savedAt ?? null,
+    editedAt: decoded.value.editedAt ?? null,
+  };
+  const { root } = decoded.value;
   const paneIds = collectPaneIds(root);
-  if (new Set(paneIds).size !== paneIds.length || paneIds.some((id) => panes[id]?.id !== id)) {
-    return null;
+  if (new Set(paneIds).size !== paneIds.length || paneIds.some((id) => panes[id] === undefined)) {
+    return { ...document, panes: {}, root: null, floating: {}, agents: {} };
   }
   const floatingOnly = Object.keys(decoded.value.floating ?? {}).filter(
-    (id) => !paneIds.includes(id) && panes[id]?.id === id,
+    (id) => !paneIds.includes(id) && panes[id] !== undefined,
   );
   const reachable = new Set([...paneIds, ...floatingOnly]);
   // Panes neither in the tree nor floating are unreachable; drop them rather than carry them forever.
   return {
-    companies,
+    ...document,
     panes: Object.fromEntries([...reachable].map((id) => [id, panes[id]!])),
     root,
     floating: Object.fromEntries(
@@ -234,7 +264,43 @@ export function parseMosaicLayout(raw: string | null | undefined): MosaicLayoutD
         .filter(([paneId]) => reachable.has(paneId))
         .map(([paneId, rect]) => [paneId, clampFloatRect(rect)]),
     ),
-    agents: decoded.value.agents ?? {},
-    savedAt: decoded.value.savedAt ?? null,
   };
+}
+
+export type MosaicSyncStep =
+  /** Take the server's copy. */
+  | { readonly kind: "apply"; readonly layout: MosaicLayoutDocument }
+  /** This client's copy is newer, or the server has none: write it. */
+  | { readonly kind: "push" }
+  /** Neither side has anything to write. */
+  | { readonly kind: "idle" }
+  /** The server's copy is from a newer or broken build: never save over it. */
+  | { readonly kind: "blocked" };
+
+function editedAfter(local: string | null, remote: string | null): boolean {
+  if (local === null) return false;
+  return remote === null || Date.parse(local) > Date.parse(remote);
+}
+
+function isEmptyLayout(layout: MosaicLayoutDocument): boolean {
+  return (
+    layout.companies.length === 0 && layout.root === null && Object.keys(layout.panes).length === 0
+  );
+}
+
+/**
+ * Decides between the server's saved layout and this client's. The server's
+ * copy wins unless this client edited after it (say, the app quit before the
+ * save went out), so an empty or stale cache on startup never replaces it.
+ */
+export function reconcileMosaicLayout(
+  remote: string | null,
+  local: MosaicLayoutDocument,
+): MosaicSyncStep {
+  if (!remote) return isEmptyLayout(local) ? { kind: "idle" } : { kind: "push" };
+  const layout = parseMosaicLayout(remote);
+  if (!layout) return { kind: "blocked" };
+  return editedAfter(local.editedAt, layout.editedAt)
+    ? { kind: "push" }
+    : { kind: "apply", layout };
 }

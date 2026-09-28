@@ -87,6 +87,7 @@ function layout(): MosaicLayoutDocument {
     floating: { term: { x: 50, y: 50, width: 30, height: 30 } },
     agents: { [scopedThreadKey(unloadedThread)]: claude },
     savedAt: null,
+    editedAt: null,
   };
 }
 

@@ -10,6 +10,7 @@ import type { DraftId } from "../../composerDraftStore";
 import {
   captureThreadAgents,
   parseMosaicLayout,
+  reconcileMosaicLayout,
   serializeMosaicLayout,
   withLocalDrafts,
   type MosaicLayoutDocument,
@@ -65,6 +66,19 @@ function layout(): MosaicLayoutDocument {
     floating: { term: { x: 10, y: 20, width: 40, height: 30 } },
     agents: { [scopedThreadKey(threadRef)]: claude },
     savedAt: "2026-09-28T22:00:00.000Z",
+    editedAt: "2026-09-28T22:05:00.000Z",
+  };
+}
+
+function emptyLayout(editedAt: string | null = null): MosaicLayoutDocument {
+  return {
+    companies: [],
+    panes: {},
+    root: null,
+    floating: {},
+    agents: {},
+    savedAt: null,
+    editedAt,
   };
 }
 
@@ -139,13 +153,69 @@ describe("mosaic layout document", () => {
     expect(withLocalDrafts(restored, {})).toBe(restored);
   });
 
-  it("rejects missing, malformed, future, and inconsistent documents", () => {
+  it("rejects missing, malformed, and future documents", () => {
     expect(parseMosaicLayout(null)).toBeNull();
     expect(parseMosaicLayout("{not json")).toBeNull();
     const saved = JSON.parse(serializeMosaicLayout(layout()));
     expect(parseMosaicLayout(JSON.stringify({ ...saved, version: 2 }))).toBeNull();
+  });
+
+  it("keeps the companies when the grid is inconsistent or one company is unreadable", () => {
+    const saved = JSON.parse(serializeMosaicLayout(layout()));
     const { term: _term, ...withoutTerminal } = saved.panes;
-    expect(parseMosaicLayout(JSON.stringify({ ...saved, panes: withoutTerminal }))).toBeNull();
+    const inconsistent = parseMosaicLayout(JSON.stringify({ ...saved, panes: withoutTerminal }))!;
+    expect(inconsistent).toMatchObject({ root: null, panes: {}, floating: {} });
+    expect(inconsistent.companies).toEqual(layout().companies);
+
+    const withBadCompany = { ...saved, companies: [...saved.companies, { id: 7 }] };
+    expect(parseMosaicLayout(JSON.stringify(withBadCompany))?.companies).toEqual(
+      layout().companies,
+    );
+  });
+
+  it("round-trips companies, their agent and repo, and the edit time through the save payload", () => {
+    const payload = JSON.parse(serializeMosaicLayout(layout()));
+    expect(payload.companies).toEqual([
+      {
+        id: "acme",
+        name: "Acme",
+        color: "#22c55e",
+        projectRef: { environmentId: "env", projectId: "p1" },
+        modelSelection: codex,
+      },
+    ]);
+    const restored = parseMosaicLayout(JSON.stringify(payload))!;
+    expect(restored.companies).toEqual(layout().companies);
+    expect(restored.editedAt).toBe(layout().editedAt);
+  });
+
+  describe("reconciling with the server on startup", () => {
+    it("loads the saved companies instead of saving an empty startup over them", () => {
+      const saved = serializeMosaicLayout(layout());
+      const step = reconcileMosaicLayout(saved, emptyLayout());
+      expect(step.kind).toBe("apply");
+      expect(step.kind === "apply" && step.layout.companies).toEqual(layout().companies);
+    });
+
+    it("loads the server copy over an older cached copy that lost its companies", () => {
+      const stale = { ...layout(), companies: [], editedAt: "2026-09-28T21:00:00.000Z" };
+      const step = reconcileMosaicLayout(serializeMosaicLayout(layout()), stale);
+      expect(step.kind === "apply" && step.layout.companies).toEqual(layout().companies);
+    });
+
+    it("pushes a cached edit the server never received", () => {
+      const later = { ...layout(), editedAt: "2026-09-28T23:00:00.000Z" };
+      expect(reconcileMosaicLayout(serializeMosaicLayout(layout()), later)).toEqual({
+        kind: "push",
+      });
+    });
+
+    it("never saves over a document it cannot read, or an empty grid over nothing", () => {
+      const future = JSON.stringify({ ...JSON.parse(serializeMosaicLayout(layout())), version: 2 });
+      expect(reconcileMosaicLayout(future, layout())).toEqual({ kind: "blocked" });
+      expect(reconcileMosaicLayout(null, emptyLayout())).toEqual({ kind: "idle" });
+      expect(reconcileMosaicLayout(null, layout())).toEqual({ kind: "push" });
+    });
   });
 
   it("keeps a browser floating over the grid and a device pane in the grid", () => {
