@@ -112,6 +112,7 @@ import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts";
+import { ProviderAccountLogin } from "./provider/ProviderAccountLogin.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
@@ -564,6 +565,7 @@ const makeWsRpcLayer = (
       const providerSessionDirectory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const providerAuth = yield* ProviderAuthService;
+      const providerAccountLogin = yield* ProviderAccountLogin;
       const providerInstances = yield* ProviderInstanceRegistry;
       const providerInstallation = yield* makeProviderInstallation();
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
@@ -2449,6 +2451,30 @@ const makeWsRpcLayer = (
           observeRpcStream(
             WS_METHODS.providerAuthSubscribe,
             providerAuth.subscribe(input, currentSessionId),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerAccountLoginStart]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerAccountLoginStart,
+            providerAccountLogin.start(input),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerAccountLoginSubmitCode]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerAccountLoginSubmitCode,
+            providerAccountLogin.submitCode(input),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerAccountLoginCancel]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerAccountLoginCancel,
+            providerAccountLogin.cancel(input),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerAccountLoginSubscribe]: (input) =>
+          observeRpcStream(
+            WS_METHODS.providerAccountLoginSubscribe,
+            providerAccountLogin.subscribe(input),
             { "rpc.aggregate": "provider" },
           ),
         [WS_METHODS.providerInstallStart]: (input) =>

@@ -3,13 +3,18 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ProviderDriverKind, ProviderInstanceId, ScopedProjectRef } from "@t3tools/contracts";
+import type {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ScopedProjectRef,
+  ServerProvider,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { useNavigate } from "@tanstack/react-router";
 import { FolderOpenIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { create } from "zustand";
 
+import { AddAccountDialog } from "../../components/settings/AddAccountDialog";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -203,8 +208,7 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
   const providers = company.projectRef
     ? (serverConfigs.get(company.projectRef.environmentId)?.providers ?? [])
     : [];
-  const setDialogOpen = useCompaniesDialog((state) => state.setOpen);
-  const navigate = useNavigate();
+  const [addingAccount, setAddingAccount] = useState(false);
   const accountEntries = companyAccountEntries(providers);
   const drivers = [...new Set(accountEntries.map((entry) => entry.driverKind))];
   const currentAccount = accountEntries.find(
@@ -219,6 +223,23 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
     ? accountEntries.filter((entry) => entry.driverKind === currentDriver)
     : [];
   const update = (patch: Partial<MosaicCompany>) => upsertCompany({ ...company, ...patch });
+  const addAccountButton = (
+    <Button size="sm" variant="outline" onClick={() => setAddingAccount(true)}>
+      <PlusIcon />
+      Add account
+    </Button>
+  );
+  const selectAddedAccount = (
+    instanceId: ProviderInstanceId,
+    latestProviders: ReadonlyArray<ServerProvider>,
+  ) => {
+    const latest = useMosaicStore.getState().companies.find((entry) => entry.id === company.id);
+    if (!latest) return;
+    upsertCompany({
+      ...latest,
+      modelSelection: selectCompanyAccount(latestProviders, latest.modelSelection, instanceId),
+    });
+  };
 
   return (
     <div
@@ -326,6 +347,7 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
             </option>
           ))}
         </select>
+        {currentDriver === null && company.projectRef !== null ? addAccountButton : null}
       </div>
       {currentDriver ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -355,28 +377,22 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
               </option>
             ))}
           </select>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              if (!company.projectRef) return;
-              setDialogOpen(false);
-              void navigate({
-                to: "/settings/providers",
-                search: { environmentId: company.projectRef.environmentId },
-              });
-            }}
-          >
-            <PlusIcon />
-            Add account
-          </Button>
+          {addAccountButton}
         </div>
       ) : null}
       {currentDriver && driverAccounts.length < 2 ? (
         <p className="ps-14 text-xs text-muted-foreground">
-          Only one {driverLabel(currentDriver)} account is signed in. Add another in Settings ›
-          Providers, then pick it here.
+          Only one {driverLabel(currentDriver)} account is signed in. Use Add account to sign in
+          another.
         </p>
+      ) : null}
+      {addingAccount && company.projectRef ? (
+        <AddAccountDialog
+          environmentId={company.projectRef.environmentId}
+          initialDriver={currentDriver === "codex" ? "codex" : "claudeAgent"}
+          onOpenChange={setAddingAccount}
+          onAdded={selectAddedAccount}
+        />
       ) : null}
     </div>
   );

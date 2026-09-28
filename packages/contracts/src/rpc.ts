@@ -3,6 +3,11 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
+  ProviderAccountLoginCodeInput,
+  ProviderAccountLoginError,
+  ProviderAccountLoginFlowInput,
+  ProviderAccountLoginStartInput,
+  ProviderAccountLoginState,
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
   ProviderAuthState,
@@ -306,6 +311,10 @@ export const WS_METHODS = {
   providerAuthCancel: "provider.auth.cancel",
   providerAuthLogout: "provider.auth.logout",
   providerAuthSubscribe: "provider.auth.subscribe",
+  providerAccountLoginStart: "provider.accountLogin.start",
+  providerAccountLoginSubmitCode: "provider.accountLogin.submitCode",
+  providerAccountLoginCancel: "provider.accountLogin.cancel",
+  providerAccountLoginSubscribe: "provider.accountLogin.subscribe",
   providerInstallStart: "provider.install.start",
   providerInstallCancel: "provider.install.cancel",
   providerInstallSubscribe: "provider.install.subscribe",
@@ -529,6 +538,36 @@ const WsProviderAuthSubscribeRpc = Rpc.make(WS_METHODS.providerAuthSubscribe, {
   payload: ProviderSetupInput,
   success: ProviderAuthState,
   error: ProviderSetupRpcError,
+  stream: true,
+});
+
+const ProviderAccountLoginRpcError = Schema.Union([
+  ProviderAccountLoginError,
+  EnvironmentAuthorizationError,
+]);
+
+const WsProviderAccountLoginStartRpc = Rpc.make(WS_METHODS.providerAccountLoginStart, {
+  payload: ProviderAccountLoginStartInput,
+  success: ProviderAccountLoginState,
+  error: ProviderAccountLoginRpcError,
+});
+
+const WsProviderAccountLoginSubmitCodeRpc = Rpc.make(WS_METHODS.providerAccountLoginSubmitCode, {
+  payload: ProviderAccountLoginCodeInput,
+  success: ProviderAccountLoginState,
+  error: ProviderAccountLoginRpcError,
+});
+
+const WsProviderAccountLoginCancelRpc = Rpc.make(WS_METHODS.providerAccountLoginCancel, {
+  payload: ProviderAccountLoginFlowInput,
+  success: ProviderAccountLoginState,
+  error: ProviderAccountLoginRpcError,
+});
+
+const WsProviderAccountLoginSubscribeRpc = Rpc.make(WS_METHODS.providerAccountLoginSubscribe, {
+  payload: ProviderAccountLoginFlowInput,
+  success: ProviderAccountLoginState,
+  error: ProviderAccountLoginRpcError,
   stream: true,
 });
 
@@ -1403,6 +1442,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderAuthCancelRpc,
   WsProviderAuthLogoutRpc,
   WsProviderAuthSubscribeRpc,
+  WsProviderAccountLoginStartRpc,
+  WsProviderAccountLoginSubmitCodeRpc,
+  WsProviderAccountLoginCancelRpc,
+  WsProviderAccountLoginSubscribeRpc,
   WsProviderInstallStartRpc,
   WsProviderInstallCancelRpc,
   WsProviderInstallSubscribeRpc,

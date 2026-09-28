@@ -9,6 +9,11 @@ shared provider settings.
 Use a separate Claude config directory for each account. This also works for named
 presets that need different Claude settings or a router connection.
 
+To skip the terminal, use **Add account** in **Settings > Providers**, pick Claude, and
+enter a label such as `Personal`. T3 Code creates `~/.claude_personal`, runs Claude's
+login there, and adds the instance when you finish signing in. If the sign-in page
+shows a code, paste it into the dialog.
+
 Keep your existing account in the default directory. On the environment's machine,
 create the second login:
 

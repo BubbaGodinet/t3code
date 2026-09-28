@@ -35,7 +35,9 @@ store, configure file storage for this setup. See
 
 Use a completely separate **CODEX_HOME path**, with no shadow home, when you want
 separate Codex sessions and configuration. That instance cannot continue threads
-from the other home.
+from the other home. **Add account** in **Settings > Providers** sets this up without a
+terminal: pick Codex and a label such as `Personal`, and T3 Code creates
+`~/.codex_personal`, runs `codex login` there, and adds the instance once you sign in.
 
 ## Switch accounts in an existing thread
 

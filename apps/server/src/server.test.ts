@@ -134,6 +134,7 @@ import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderService from "./provider/Services/ProviderService.ts";
 import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts";
+import { ProviderAccountLogin } from "./provider/ProviderAccountLogin.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import {
   AntigravityInstallation,
@@ -809,6 +810,7 @@ const buildAppUnderTest = (options?: {
           Layer.mock(ProviderAuthService)({
             ...options?.layers?.providerAuth,
           }),
+          Layer.mock(ProviderAccountLogin)({}),
           Layer.mock(ProviderInstanceRegistry)({
             getInstance: () => Effect.succeed(undefined),
             listInstances: Effect.succeed([]),

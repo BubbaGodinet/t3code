@@ -26,7 +26,7 @@ import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Result from "effect/Result";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, UserPlusIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
@@ -79,6 +79,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { AddAccountDialog } from "./AddAccountDialog";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
@@ -583,6 +584,7 @@ export function EnvironmentProviderSettings({
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
+  const [isAddAccountDialogOpen, setIsAddAccountDialogOpen] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(
     targetInstanceId ?? null,
   );
@@ -1036,6 +1038,21 @@ export function EnvironmentProviderSettings({
                   />
                   <TooltipPopup side="top">Add provider</TooltipPopup>
                 </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="icon-xs"
+                        variant="ghost-muted"
+                        onClick={() => setIsAddAccountDialogOpen(true)}
+                        aria-label="Add account"
+                      >
+                        <UserPlusIcon />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="top">Add account</TooltipPopup>
+                </Tooltip>
               </>
             )}
           </div>
@@ -1170,6 +1187,13 @@ export function EnvironmentProviderSettings({
           environmentId={environmentId}
           environmentLabel={environmentLabel}
           onOpenChange={setIsAddInstanceDialogOpen}
+        />
+      ) : null}
+      {isAddAccountDialogOpen ? (
+        <AddAccountDialog
+          environmentId={environmentId}
+          onOpenChange={setIsAddAccountDialogOpen}
+          onAdded={setSelectedInstanceId}
         />
       ) : null}
     </>

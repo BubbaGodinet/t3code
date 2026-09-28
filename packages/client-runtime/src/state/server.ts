@@ -990,6 +990,23 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:provider:auth-logout",
       tag: WS_METHODS.providerAuthLogout,
     }),
+    providerAccountLoginState: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:provider:account-login-state",
+      tag: WS_METHODS.providerAccountLoginSubscribe,
+      idleTtlMs: 0,
+    }),
+    startProviderAccountLogin: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:account-login-start",
+      tag: WS_METHODS.providerAccountLoginStart,
+    }),
+    submitProviderAccountLoginCode: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:account-login-code",
+      tag: WS_METHODS.providerAccountLoginSubmitCode,
+    }),
+    cancelProviderAccountLogin: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:account-login-cancel",
+      tag: WS_METHODS.providerAccountLoginCancel,
+    }),
     providerInstallState: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:provider:install-state",
       tag: WS_METHODS.providerInstallSubscribe,
