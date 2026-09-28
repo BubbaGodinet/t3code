@@ -11,8 +11,9 @@ import {
 
 /**
  * Argus's Command / Sanctuary switcher, in the banner slot of the command
- * center. Command is the pane grid; Sanctuary is the framing Argus window's
- * page, or the in-app Sanctuary page when nothing frames T3.
+ * center and atop the in-app Sanctuary. Command is the pane grid; Sanctuary is
+ * the framing Argus window's page, or the in-app Sanctuary space when nothing
+ * frames T3.
  */
 export function ArgusModeSwitcher({ className }: { className?: string }) {
   const current = useArgusMode() ?? "command";

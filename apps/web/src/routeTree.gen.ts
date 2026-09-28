@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SanctuaryRouteImport } from './routes/sanctuary'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
@@ -30,7 +31,6 @@ import { Route as SettingsConnectionsRouteImport } from './routes/settings.conne
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
-import { Route as ChatSanctuaryRouteImport } from './routes/_chat.sanctuary'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
@@ -48,6 +48,11 @@ const UsageRoute = UsageRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SanctuaryRoute = SanctuaryRouteImport.update({
+  id: '/sanctuary',
+  path: '/sanctuary',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PairRoute = PairRouteImport.update({
@@ -140,11 +145,6 @@ const ProjectsProjectKeyRoute = ProjectsProjectKeyRouteImport.update({
   path: '/projects/$projectKey',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ChatSanctuaryRoute = ChatSanctuaryRouteImport.update({
-  id: '/sanctuary',
-  path: '/sanctuary',
-  getParentRoute: () => ChatRoute,
-} as any)
 const ChatPullRequestsRoute = ChatPullRequestsRouteImport.update({
   id: '/pull-requests',
   path: '/pull-requests',
@@ -166,11 +166,11 @@ export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
+  '/sanctuary': typeof SanctuaryRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/pull-requests': typeof ChatPullRequestsRoute
-  '/sanctuary': typeof ChatSanctuaryRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -191,11 +191,11 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
+  '/sanctuary': typeof SanctuaryRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/pull-requests': typeof ChatPullRequestsRoute
-  '/sanctuary': typeof ChatSanctuaryRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -219,11 +219,11 @@ export interface FileRoutesById {
   '/_chat': typeof ChatRouteWithChildren
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
+  '/sanctuary': typeof SanctuaryRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
-  '/_chat/sanctuary': typeof ChatSanctuaryRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -248,11 +248,11 @@ export interface FileRouteTypes {
     | '/'
     | '/connect'
     | '/pair'
+    | '/sanctuary'
     | '/settings'
     | '/usage'
     | '/welcome'
     | '/pull-requests'
-    | '/sanctuary'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
@@ -273,11 +273,11 @@ export interface FileRouteTypes {
   to:
     | '/connect'
     | '/pair'
+    | '/sanctuary'
     | '/settings'
     | '/usage'
     | '/welcome'
     | '/pull-requests'
-    | '/sanctuary'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
@@ -300,11 +300,11 @@ export interface FileRouteTypes {
     | '/_chat'
     | '/connect'
     | '/pair'
+    | '/sanctuary'
     | '/settings'
     | '/usage'
     | '/welcome'
     | '/_chat/pull-requests'
-    | '/_chat/sanctuary'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
@@ -328,6 +328,7 @@ export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
   ConnectRoute: typeof ConnectRoute
   PairRoute: typeof PairRoute
+  SanctuaryRoute: typeof SanctuaryRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
@@ -355,6 +356,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sanctuary': {
+      id: '/sanctuary'
+      path: '/sanctuary'
+      fullPath: '/sanctuary'
+      preLoaderRoute: typeof SanctuaryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pair': {
@@ -483,13 +491,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_chat/sanctuary': {
-      id: '/_chat/sanctuary'
-      path: '/sanctuary'
-      fullPath: '/sanctuary'
-      preLoaderRoute: typeof ChatSanctuaryRouteImport
-      parentRoute: typeof ChatRoute
-    }
     '/_chat/pull-requests': {
       id: '/_chat/pull-requests'
       path: '/pull-requests'
@@ -516,7 +517,6 @@ declare module '@tanstack/react-router' {
 
 interface ChatRouteChildren {
   ChatPullRequestsRoute: typeof ChatPullRequestsRoute
-  ChatSanctuaryRoute: typeof ChatSanctuaryRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
@@ -524,7 +524,6 @@ interface ChatRouteChildren {
 
 const ChatRouteChildren: ChatRouteChildren = {
   ChatPullRequestsRoute: ChatPullRequestsRoute,
-  ChatSanctuaryRoute: ChatSanctuaryRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
@@ -572,6 +571,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   ConnectRoute: ConnectRoute,
   PairRoute: PairRoute,
+  SanctuaryRoute: SanctuaryRoute,
   SettingsRoute: SettingsRouteWithChildren,
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,

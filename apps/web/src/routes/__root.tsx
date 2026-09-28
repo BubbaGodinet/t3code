@@ -14,7 +14,7 @@ import {
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
-import { useArgusMode } from "../argus/argusCommandCenter";
+import { ARGUS_SANCTUARY_PATH, useArgusMode } from "../argus/argusCommandCenter";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
@@ -194,13 +194,17 @@ function RootRouteView() {
     );
   }
 
-  const appShell = (
-    <CommandPalette>
-      <AppSidebarLayout>
-        <Outlet />
-      </AppSidebarLayout>
-    </CommandPalette>
-  );
+  // Sanctuary is its own space, not a page of the command shell: no sidebar, no palette.
+  const appShell =
+    pathname === ARGUS_SANCTUARY_PATH ? (
+      <Outlet />
+    ) : (
+      <CommandPalette>
+        <AppSidebarLayout>
+          <Outlet />
+        </AppSidebarLayout>
+      </CommandPalette>
+    );
 
   // FirstRunGate holds back everything below it — including EventRouter,
   // whose welcome payload navigates into a thread — until the first-run
