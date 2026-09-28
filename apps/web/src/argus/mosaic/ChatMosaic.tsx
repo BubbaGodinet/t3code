@@ -35,17 +35,10 @@ import { moveFloatRect, resizeFloatRect } from "./mosaicFloat";
 import { MosaicPaneView } from "./MosaicPane";
 import { routeTargetKey, useMosaicStore } from "./mosaicStore";
 import { detachedFloatingPaneIds } from "./mosaicSurfaces";
-import { layoutMosaic, type MosaicDivider, type MosaicPreset } from "./mosaicTree";
+import { layoutMosaic, type MosaicDivider } from "./mosaicTree";
 import { useMosaicActions } from "./useMosaicActions";
 import { useMosaicConfigs } from "./useMosaicConfigs";
 import { useMosaicLayoutSync } from "./useMosaicLayoutSync";
-
-const PRESETS: ReadonlyArray<{ preset: MosaicPreset; label: string; title: string }> = [
-  { preset: "row", label: "Row", title: "All panes side by side" },
-  { preset: "two-over-one", label: "2+1", title: "Two on top, one across the bottom" },
-  { preset: "grid-2x2", label: "2×2", title: "Two by two" },
-  { preset: "three-over-two", label: "3+2", title: "Three on top, two below" },
-];
 
 /** Half the gap between panes, in px; panes inset by this so dividers sit in the gutter. */
 const GUTTER = 3;
@@ -255,7 +248,6 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
   const root = useMosaicStore((state) => state.root);
   const floating = useMosaicStore((state) => state.floating);
   const activePaneId = useMosaicStore((state) => state.activePaneId);
-  const applyPreset = useMosaicStore((state) => state.applyPreset);
   const addPane = useMosaicStore((state) => state.addPane);
   const setEnabled = useMosaicStore((state) => state.setEnabled);
   const openCompanies = useCompaniesDialog((state) => state.setOpen);
@@ -314,20 +306,6 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
       <WorkspacePageHeader electron={isElectron} className="gap-2">
-        <div className="flex items-center gap-0.5 [-webkit-app-region:no-drag]">
-          {PRESETS.map(({ preset, label, title }) => (
-            <Button
-              key={preset}
-              size="xs"
-              variant="ghost-muted"
-              title={title}
-              aria-label={title}
-              onClick={() => applyPreset(preset)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
         <div className="flex flex-1 items-center gap-1 [-webkit-app-region:no-drag]">
           <Button size="xs" variant="outline" onClick={() => addPane("chat")}>
             <MessageSquarePlusIcon />
@@ -362,7 +340,7 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
         >
           {shownPanes.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              Empty grid. Add a chat or terminal pane, or pick a layout.
+              Empty grid. Add a chat or terminal pane.
             </div>
           ) : null}
           {layout.panes.map(({ paneId, rect }) =>
