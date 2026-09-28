@@ -77,19 +77,37 @@ function ArgusModeSwitcher({ current, className }: { current: ArgusMode; classNa
     }, ARGUS_PILL_SLIDE_MS);
   };
 
+  // Over Sanctuary's silk the pill takes the silk's glass: dark tint, blur, a white knob.
+  const overSilk = current === "sanctuary";
+  const tone = overSilk
+    ? {
+        ring: "focus-visible:ring-white/60",
+        selected: "text-[#09090b]",
+        idle: "text-white/50 hover:text-white",
+      }
+    : {
+        ring: "focus-visible:ring-ring",
+        selected: "text-foreground",
+        idle: "text-muted-foreground hover:text-foreground",
+      };
+
   return (
     <div
       role="tablist"
       aria-label="ARGUS mode"
       className={cn(
-        "argus-mode-pill relative inline-grid shrink-0 grid-cols-2 items-center rounded-full border border-border bg-muted/40 p-0.5 text-[11px] backdrop-blur-sm [-webkit-app-region:no-drag]",
+        "argus-mode-pill relative inline-grid shrink-0 grid-cols-2 items-center rounded-full border p-0.5 text-[11px] [-webkit-app-region:no-drag]",
+        overSilk
+          ? "border-white/8 bg-[rgb(18_15_23/0.5)] shadow-[0_4px_24px_rgb(0_0_0/0.15)] backdrop-blur-[20px] backdrop-saturate-[1.4]"
+          : "border-border bg-muted/40 backdrop-blur-sm",
         className,
       )}
     >
       <span
         aria-hidden
         className={cn(
-          "absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-full bg-accent shadow-xs transition-transform duration-200 ease-out motion-reduce:transition-none",
+          "absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-full shadow-xs transition-transform duration-200 ease-out motion-reduce:transition-none",
+          overSilk ? "bg-white" : "bg-accent",
           shown === "sanctuary" && "translate-x-full",
         )}
       />
@@ -100,8 +118,9 @@ function ArgusModeSwitcher({ current, className }: { current: ArgusMode; classNa
           role="tab"
           aria-selected={tab.selected}
           className={cn(
-            "relative cursor-pointer rounded-full px-2.5 py-0.5 text-center font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            tab.selected ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+            "relative cursor-pointer rounded-full px-2.5 py-0.5 text-center font-medium transition-colors outline-none focus-visible:ring-2",
+            tone.ring,
+            tab.selected ? tone.selected : tone.idle,
           )}
           onClick={() => pick(tab)}
         >
