@@ -33,11 +33,11 @@ function layoutChanged(next: MosaicLayoutDocument, previous: MosaicLayoutDocumen
  * nothing is saved until the server has reported its own copy. Named
  * configurations are separate (`useMosaicConfigs`).
  */
-export function useMosaicLayoutSync(routeTarget: ThreadRouteTarget) {
+export function useMosaicLayoutSync(routeTarget: ThreadRouteTarget | null) {
   const environmentId = usePrimaryEnvironmentId();
-  const placeRoute = useEffectEvent(() =>
-    useMosaicStore.getState().syncRouteTarget(routeTarget, "enter"),
-  );
+  const placeRoute = useEffectEvent(() => {
+    if (routeTarget) useMosaicStore.getState().syncRouteTarget(routeTarget, "enter");
+  });
   // `undefined` until the server reports its config, `null` when nothing is saved yet.
   const remote = useReportedServerSettings(environmentId)?.argusMosaicLayout;
   const updateSettings = useUpdatePrimarySettings();

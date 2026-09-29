@@ -1,4 +1,5 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { useNavigate } from "@tanstack/react-router";
 import {
   BuildingIcon,
   CheckIcon,
@@ -226,7 +227,8 @@ export const MosaicPaneView = memo(function MosaicPaneView({
   const companies = useMosaicStore((state) => state.companies);
   const addPane = useMosaicStore((state) => state.addPane);
   const setPaneTarget = useMosaicStore((state) => state.setPaneTarget);
-  const { focusPane, closePane } = useMosaicActions();
+  const navigate = useNavigate();
+  const { focusPane, closePane, openTarget } = useMosaicActions();
   const chatTarget = pane?.kind === "chat" ? pane.target : null;
   const sessionThreadRef =
     chatTarget?.kind === "server"
@@ -244,9 +246,15 @@ export const MosaicPaneView = memo(function MosaicPaneView({
       ? scopeProjectRef(draftSession.environmentId, draftSession.projectId)
       : null;
   const company = pane ? resolvePaneCompany(companies, pane, threadProjectRef) : null;
+  // The pane keeps its own thread; the active pane then moves the route with it.
   const onTargetChange = useCallback(
-    (next: ThreadRouteTarget | null) => setPaneTarget(paneId, next),
-    [paneId, setPaneTarget],
+    (next: ThreadRouteTarget | null) => {
+      setPaneTarget(paneId, next);
+      if (!active) return;
+      if (next) openTarget(next);
+      else void navigate({ to: "/", replace: true });
+    },
+    [active, navigate, openTarget, paneId, setPaneTarget],
   );
   const paneContext = useMemo(() => ({ active, inMosaic: true }), [active]);
 
@@ -364,11 +372,7 @@ export const MosaicPaneView = memo(function MosaicPaneView({
         <ChatPaneContext value={paneContext}>
           {pane.kind === "chat" ? (
             pane.target ? (
-              <ThreadRouteView
-                target={pane.target}
-                embedded
-                {...(active ? {} : { onTargetChange })}
-              />
+              <ThreadRouteView target={pane.target} embedded onTargetChange={onTargetChange} />
             ) : (
               <ChatPanePicker pane={pane} company={company} />
             )

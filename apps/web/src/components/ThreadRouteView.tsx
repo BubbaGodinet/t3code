@@ -53,8 +53,8 @@ export function ThreadRouteView({
   /** Fill a mosaic pane instead of the full-height inset. */
   embedded?: boolean;
   /**
-   * Given to panes that do not own the route: promotion and missing-thread
-   * handling retarget the pane instead of navigating.
+   * Given to mosaic panes: promotion and missing-thread handling retarget the
+   * pane instead of navigating.
    */
   onTargetChange?: (next: ThreadRouteTarget | null) => void;
 }) {

@@ -418,3 +418,16 @@ export function resolvePaneCompany(
   }
   return companies.find((company) => company.id === pane.companyId) ?? null;
 }
+
+/** The agent a routed draft takes: its pane company's, unless one is already picked. */
+export function routedDraftAgent(input: {
+  readonly companies: ReadonlyArray<MosaicCompany>;
+  readonly pane: MosaicPane | undefined;
+  readonly draftProjectRef: ScopedProjectRef | null;
+  readonly draftHasAgent: boolean;
+}): ModelSelection | null {
+  if (!input.pane || input.draftHasAgent) return null;
+  return (
+    resolvePaneCompany(input.companies, input.pane, input.draftProjectRef)?.modelSelection ?? null
+  );
+}

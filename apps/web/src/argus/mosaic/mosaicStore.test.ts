@@ -1,9 +1,15 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
+import type { DraftId } from "../../composerDraftStore";
 import type { ThreadRouteTarget } from "../../threadRoutes";
-import { placeRouteTarget, type MosaicPane } from "./mosaicStore";
+import {
+  placeRouteTarget,
+  routedDraftAgent,
+  type MosaicCompany,
+  type MosaicPane,
+} from "./mosaicStore";
 import { buildPresetTree, collectPaneIds } from "./mosaicTree";
 
 const environmentId = EnvironmentId.make("env");
@@ -77,5 +83,57 @@ describe("placeRouteTarget", () => {
       "enter",
     );
     expect(collectPaneIds(next.root)).toEqual([next.activePaneId]);
+  });
+});
+
+describe("routedDraftAgent", () => {
+  const cursor = { instanceId: ProviderInstanceId.make("cursor"), model: "default" };
+  const studioProject = scopeProjectRef(environmentId, ProjectId.make("thestudio"));
+  const serverProject = scopeProjectRef(environmentId, ProjectId.make("server"));
+  const studio: MosaicCompany = {
+    id: "studio",
+    name: "The Studio",
+    color: "#6146c3",
+    projectRef: studioProject,
+    modelSelection: cursor,
+  };
+  const draftPane: MosaicPane = {
+    id: "pane",
+    kind: "chat",
+    companyId: "studio",
+    target: { kind: "draft", draftId: "draft-1" as DraftId },
+  };
+
+  it("gives a draft on another project the pane company's agent, not the server default", () => {
+    expect(
+      routedDraftAgent({
+        companies: [studio],
+        pane: draftPane,
+        draftProjectRef: serverProject,
+        draftHasAgent: false,
+      }),
+    ).toEqual(cursor);
+  });
+
+  it("keeps an agent already picked for the draft", () => {
+    expect(
+      routedDraftAgent({
+        companies: [studio],
+        pane: draftPane,
+        draftProjectRef: studioProject,
+        draftHasAgent: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("leaves drafts outside a company pane alone", () => {
+    expect(
+      routedDraftAgent({
+        companies: [studio],
+        pane: { ...draftPane, companyId: null },
+        draftProjectRef: serverProject,
+        draftHasAgent: false,
+      }),
+    ).toBeNull();
   });
 });

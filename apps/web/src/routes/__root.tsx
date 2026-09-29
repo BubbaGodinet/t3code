@@ -77,6 +77,7 @@ import {
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
+import { useMosaicStore } from "../argus/mosaic/mosaicStore";
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
@@ -517,7 +518,8 @@ function EventRouter({
         );
       useUiStateStore.getState().setProjectExpanded(bootstrapProjectKey, true);
 
-      if (readPathname() !== "/") {
+      // The grid restores its own panes; the server's cwd thread must not land in one.
+      if (readPathname() !== "/" || useMosaicStore.getState().enabled) {
         return;
       }
       if (skipInitialBootstrapNavigationRef.current) {

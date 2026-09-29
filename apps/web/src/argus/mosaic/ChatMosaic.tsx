@@ -16,9 +16,12 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+
 import { Button } from "../../components/ui/button";
 import { SidebarInset } from "../../components/ui/sidebar";
 import { WorkspacePageHeader } from "../../components/WorkspacePageHeader";
+import { useComposerDraftStore, type DraftId } from "../../composerDraftStore";
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import type { ThreadRouteTarget } from "../../threadRoutes";
@@ -34,7 +37,7 @@ import {
 import { ConfigurationSwitcher, SaveConfigurationButton } from "./MosaicConfigControls";
 import { moveFloatRect, resizeFloatRect } from "./mosaicFloat";
 import { MosaicPaneView } from "./MosaicPane";
-import { routeTargetKey, useMosaicStore } from "./mosaicStore";
+import { routedDraftAgent, routeTargetKey, useMosaicStore } from "./mosaicStore";
 import { detachedFloatingPaneIds } from "./mosaicSurfaces";
 import { dropZoneAt, layoutMosaic, type MosaicDivider, type MosaicDropZone } from "./mosaicTree";
 import { useMosaicActions } from "./useMosaicActions";
@@ -247,6 +250,29 @@ function moveKeyboardFocusToPane(paneId: string) {
     ?.focus({ preventScroll: true });
 }
 
+/**
+ * A draft the route drops into a pane runs on that pane's company agent unless
+ * an agent was already picked for it, so it never falls back to the server default.
+ */
+function adoptPaneCompanyAgent(draftId: DraftId) {
+  const { panes, companies } = useMosaicStore.getState();
+  const pane = Object.values(panes).find(
+    (entry) =>
+      entry.kind === "chat" && entry.target?.kind === "draft" && entry.target.draftId === draftId,
+  );
+  const drafts = useComposerDraftStore.getState();
+  const session = drafts.getDraftSession(draftId);
+  const agent = routedDraftAgent({
+    companies,
+    pane,
+    draftProjectRef: session ? scopeProjectRef(session.environmentId, session.projectId) : null,
+    draftHasAgent: (drafts.getComposerDraft(draftId)?.activeProvider ?? null) !== null,
+  });
+  if (agent) {
+    drafts.setModelSelection(draftId, agent, { explicit: true, replaceOptions: true });
+  }
+}
+
 /** Focus follows the pointer across panes, per the guards in `hoverActivation`. */
 function useHoverActivation() {
   const { focusPane } = useMosaicActions();
@@ -290,7 +316,7 @@ function useHoverActivation() {
  * absolutely positioned from the split tree so reshaping the layout, or
  * popping a pane out to float, moves a chat without remounting it.
  */
-export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) {
+export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget | null }) {
   const root = useMosaicStore((state) => state.root);
   const floating = useMosaicStore((state) => state.floating);
   const activePaneId = useMosaicStore((state) => state.activePaneId);
@@ -340,13 +366,16 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget }) 
     });
   };
 
-  const routeKey = routeTargetKey(routeTarget);
-  const lastRouteKeyRef = useRef<string | null>(null);
+  const routeKey = routeTarget ? routeTargetKey(routeTarget) : null;
+  // `undefined` until the first route is seen, so the index counts as having entered.
+  const lastRouteKeyRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (lastRouteKeyRef.current === routeKey) return;
-    const mode = lastRouteKeyRef.current === null ? "enter" : "navigate";
+    const mode = lastRouteKeyRef.current === undefined ? "enter" : "navigate";
     lastRouteKeyRef.current = routeKey;
+    if (!routeTarget) return;
     useMosaicStore.getState().syncRouteTarget(routeTarget, mode);
+    if (routeTarget.kind === "draft") adoptPaneCompanyAgent(routeTarget.draftId);
   }, [routeKey, routeTarget]);
 
   return (

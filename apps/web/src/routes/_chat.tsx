@@ -1,4 +1,4 @@
-import { Outlet, createFileRoute, redirect, useParams } from "@tanstack/react-router";
+import { Outlet, createFileRoute, redirect, useMatch, useParams } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo } from "react";
 
@@ -186,15 +186,16 @@ function ChatRouteLayout() {
     select: (params) => resolveThreadRouteTarget(params),
   });
   const mosaicEnabled = useMosaicStore((state) => state.enabled);
+  // The grid owns the index too: the index route would otherwise open a fresh
+  // draft on the most recent project and drop it into a saved pane.
+  const atIndex = useMatch({ from: "/_chat/", shouldThrow: false }) !== undefined;
   return (
     <>
       <ChatRouteGlobalShortcuts />
-      {threadTarget ? (
-        mosaicEnabled ? (
-          <ChatMosaic routeTarget={threadTarget} />
-        ) : (
-          <ThreadRouteView target={threadTarget} />
-        )
+      {mosaicEnabled && (threadTarget || atIndex) ? (
+        <ChatMosaic routeTarget={threadTarget ?? null} />
+      ) : threadTarget ? (
+        <ThreadRouteView target={threadTarget} />
       ) : (
         <Outlet />
       )}
