@@ -1,4 +1,4 @@
-import { useLocation } from "@tanstack/react-router";
+import { useLocation, useMatch } from "@tanstack/react-router";
 
 import { readLocalApi } from "../localApi";
 import { useMosaicStore } from "./mosaic/mosaicStore";
@@ -89,8 +89,8 @@ export const ARGUS_ORIGIN = readArgusOrigin();
 export const ARGUS_SANCTUARY_PATH = "/sanctuary";
 
 export type ArgusModeAction =
-  /** Command is the pane grid in this window. */
-  | { readonly kind: "grid" }
+  /** Command is this window's chat space: the pane grid or the single thread, whichever was open. */
+  | { readonly kind: "command" }
   /** Ask the framing Argus window to route, falling back to navigating the top window. */
   | { readonly kind: "frame"; readonly mode: ArgusMode; readonly url: string }
   /** No Argus around this page: stay in this window on an app route. */
@@ -104,7 +104,7 @@ export interface ArgusModeTab {
 }
 
 /**
- * Both modes, always. Command is this grid. Sanctuary goes through the framing
+ * Both modes, always. Command is this window's chat space. Sanctuary goes through the framing
  * Argus window when there is one; otherwise it is an in-app page, so the
  * desktop app never hands it to the system browser.
  */
@@ -118,7 +118,7 @@ export function argusModeTabs(input: {
       mode: "command",
       label: "Command",
       selected: input.current === "command",
-      action: { kind: "grid" },
+      action: { kind: "command" },
     },
     {
       mode: "sanctuary",
@@ -153,22 +153,24 @@ function navigateTop(url: string) {
   }
 }
 
-/** Where Command returns to after an in-app Sanctuary visit. */
-let gridHrefBeforeSanctuary: string | null = null;
+/**
+ * Where Command returns to after an in-app Sanctuary visit. The grid's on/off
+ * state lives in the mosaic store, so returning here reopens whichever was showing.
+ */
+let commandHrefBeforeSanctuary: string | null = null;
 
 export function runArgusModeAction(
   action: ArgusModeAction,
   router: { readonly currentHref: string; readonly navigate: (href: string) => void },
 ) {
   const onSanctuary = router.currentHref.split(/[?#]/)[0] === ARGUS_SANCTUARY_PATH;
-  if (action.kind === "grid") {
-    useMosaicStore.getState().setEnabled(true);
-    if (onSanctuary) router.navigate(gridHrefBeforeSanctuary ?? "/");
+  if (action.kind === "command") {
+    if (onSanctuary) router.navigate(commandHrefBeforeSanctuary ?? "/");
     return;
   }
   if (action.kind === "route") {
     if (onSanctuary) return;
-    gridHrefBeforeSanctuary = router.currentHref;
+    commandHrefBeforeSanctuary = router.currentHref;
     router.navigate(action.path);
     return;
   }
@@ -189,19 +191,23 @@ export function runArgusModeAction(
   window.parent.postMessage({ type: ARGUS_SELECT_MODE_MESSAGE, mode: action.mode }, "*");
 }
 
-/** Which Argus mode this window shows, or null outside the Argus command center. */
+/**
+ * Which Argus mode this window shows, or null outside the Argus command center.
+ * Every chat screen is Command, single thread or grid alike.
+ */
 export function useArgusMode(): ArgusMode | null {
   const onSanctuary = useLocation({
     select: (location) => location.pathname === ARGUS_SANCTUARY_PATH,
   });
+  const onChat = useMatch({ from: "/_chat", shouldThrow: false, select: () => true }) === true;
   const mosaicEnabled = useMosaicStore((state) => state.enabled);
   if (onSanctuary) return "sanctuary";
-  return mosaicEnabled || ARGUS_EMBEDDED ? "command" : null;
+  return onChat || mosaicEnabled || ARGUS_EMBEDDED ? "command" : null;
 }
 
 /**
- * The Argus command-center view: the pane grid, in-app Sanctuary, or any page
- * framed by Argus. It drops T3 Code branding for the Argus mode pill at the window's top center.
+ * The Argus command-center view: any chat screen, the pane grid, in-app
+ * Sanctuary, or any page framed by Argus. It drops T3 Code branding for the Argus mode pill at the window's top center.
  */
 export function useArgusCommandCenter(): boolean {
   return useArgusMode() !== null;

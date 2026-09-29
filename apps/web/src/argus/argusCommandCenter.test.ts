@@ -5,7 +5,9 @@ import {
   argusModeTabs,
   DEFAULT_ARGUS_ORIGIN,
   normalizeArgusOrigin,
+  runArgusModeAction,
 } from "./argusCommandCenter";
+import { useMosaicStore } from "./mosaic/mosaicStore";
 
 describe("Argus mode switcher", () => {
   it("shows Command and Sanctuary whether or not a parent frame is detected", () => {
@@ -49,15 +51,31 @@ describe("Argus mode switcher", () => {
     expect(ARGUS_SANCTUARY_PATH).toBe("/sanctuary");
   });
 
-  it("keeps Command on the grid", () => {
+  it("keeps Command in this window", () => {
     for (const current of ["command", "sanctuary"] as const) {
       const command = argusModeTabs({
         inFrame: true,
         argusOrigin: DEFAULT_ARGUS_ORIGIN,
         current,
       })[0]!;
-      expect(command.action).toEqual({ kind: "grid" });
+      expect(command.action).toEqual({ kind: "command" });
     }
+  });
+
+  it("returns Command to the screen Sanctuary was opened from without turning the grid on", () => {
+    useMosaicStore.getState().setEnabled(false);
+    const visited: string[] = [];
+    const threadHref = "/env-1/thread-1";
+    runArgusModeAction(
+      { kind: "route", path: ARGUS_SANCTUARY_PATH },
+      { currentHref: threadHref, navigate: (href) => visited.push(href) },
+    );
+    runArgusModeAction(
+      { kind: "command" },
+      { currentHref: ARGUS_SANCTUARY_PATH, navigate: (href) => visited.push(href) },
+    );
+    expect(visited).toEqual([ARGUS_SANCTUARY_PATH, threadHref]);
+    expect(useMosaicStore.getState().enabled).toBe(false);
   });
 
   it("accepts only http(s) Argus origins from the frame URL", () => {
