@@ -4,6 +4,7 @@ import {
   mergePathEntries,
   readPathFromLoginShell,
   readPathFromLaunchctl,
+  resolveKnownPosixCliDirs,
   resolveWindowsEnvironment,
 } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
@@ -30,7 +31,11 @@ function hydratePosixPath(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): vo
   }
 
   const launchctlPath = platform === "darwin" && !shellPath ? readPathFromLaunchctl() : undefined;
-  const mergedPath = mergePathEntries(shellPath ?? launchctlPath, env.PATH, platform);
+  const mergedPath = mergePathEntries(
+    mergePathEntries(shellPath ?? launchctlPath, env.PATH, platform),
+    resolveKnownPosixCliDirs(env, platform).join(":"),
+    platform,
+  );
   if (mergedPath) {
     env.PATH = mergedPath;
   }

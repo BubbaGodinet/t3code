@@ -681,6 +681,22 @@ export function resolveKnownWindowsCliDirs(env: NodeJS.ProcessEnv): ReadonlyArra
   ];
 }
 
+/**
+ * Per-user CLI install directories (Codex and Claude standalone installers,
+ * bun, Homebrew) that the user's login shell may never export. Callers append
+ * them after PATH so they only fill gaps.
+ */
+export function resolveKnownPosixCliDirs(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): ReadonlyArray<string> {
+  const home = env.HOME?.trim();
+  return [
+    ...(home ? [`${home}/.local/bin`, `${home}/.bun/bin`] : []),
+    ...(platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : []),
+  ];
+}
+
 function readWindowsEnvironmentSafely(
   readEnvironment: WindowsShellEnvironmentReader,
   names: ReadonlyArray<string>,

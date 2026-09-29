@@ -20,6 +20,7 @@ import {
   readPathFromLaunchctl,
   readPathFromLoginShell,
   resolveCommandPath,
+  resolveKnownPosixCliDirs,
   resolveKnownWindowsCliDirs,
   resolveSpawnCommand,
   resolveWindowsEnvironment,
@@ -331,6 +332,19 @@ describe("resolveKnownWindowsCliDirs", () => {
       "C:\\Users\\testuser\\.bun\\bin",
       "C:\\Users\\testuser\\scoop\\shims",
     ]);
+  });
+});
+
+describe("resolveKnownPosixCliDirs", () => {
+  it("fills gaps after the login-shell PATH without reordering it", () => {
+    const dirs = resolveKnownPosixCliDirs({ HOME: "/Users/test" }, "darwin");
+    expect(mergePathEntries("/opt/homebrew/bin:/usr/bin", dirs.join(":"), "darwin")).toBe(
+      "/opt/homebrew/bin:/usr/bin:/Users/test/.local/bin:/Users/test/.bun/bin:/usr/local/bin",
+    );
+  });
+
+  it("skips home directories when HOME is unset and Homebrew paths off macOS", () => {
+    expect(resolveKnownPosixCliDirs({}, "linux")).toEqual([]);
   });
 });
 
