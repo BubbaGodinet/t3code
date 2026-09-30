@@ -9543,7 +9543,6 @@ export default function ChatView(props: ChatViewProps) {
     recordChatOutputs(
       activeThreadKey,
       deriveChatOutputs({
-        mainLabel: agentsMainLabel,
         messages: activeThread.messages,
         unsettledTurnId,
         latestTurn: activeLatestTurn,
@@ -10081,8 +10080,6 @@ export default function ChatView(props: ChatViewProps) {
                 >
                   <ChatOutputsList
                     outputs={keptChatOutputs}
-                    cwd={gitCwd ?? undefined}
-                    threadRef={activeThreadRef ?? undefined}
                     timestampFormat={timestampFormat}
                     onOpenFile={onOpenOutputFile}
                     onDismiss={closeChatSurface}
@@ -10097,7 +10094,6 @@ export default function ChatView(props: ChatViewProps) {
                   <ChatDocsList
                     environmentId={docsEnvironmentId}
                     cwd={docsCwd}
-                    threadRef={activeThreadRef ?? undefined}
                     onDismiss={closeChatSurface}
                   />
                 </ChatSurfacePanel>

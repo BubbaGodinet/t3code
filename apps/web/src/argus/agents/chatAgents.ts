@@ -138,19 +138,95 @@ export function formatEditedFiles(files: ReadonlyArray<string>): string | null {
 }
 
 const OUTPUT_PREVIEW_CHARS = 280;
+const ANSWER_TITLE_MAX = 80;
 
 /** A plain-text glimpse of an output's markdown for its row in the Outputs list. */
 export function outputPreviewText(text: string): string {
-  const plain = text
-    .replace(/```[\s\S]*?(```|$)/g, " ")
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
-    .replace(/[*_`~]+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const plain = plainAnswer(text);
   return plain.length > OUTPUT_PREVIEW_CHARS
     ? `${plain.slice(0, OUTPUT_PREVIEW_CHARS).trimEnd()}…`
     : plain;
+}
+
+/**
+ * Title for one finished answer. The first markdown heading wins; otherwise
+ * the first sentence, shortened so the row can be read at a glance. This is
+ * never the model name.
+ */
+export function answerTitle(text: string): string | null {
+  const source = text.replace(/```[\s\S]*?(```|$)/g, "\n").replace(/~~~[\s\S]*?(~~~|$)/g, "\n");
+  const heading = firstAtxHeading(source);
+  if (heading) return clipTitle(heading);
+  const plain = plainAnswer(source);
+  if (!plain) return null;
+  return clipTitle(firstSentence(plain));
+}
+
+/** The list preview under a title, with that title not repeated at the start. */
+export function outputRowPreview(text: string, title: string): string {
+  const preview = outputPreviewText(text);
+  const stem = title.replace(/…$/, "").trim();
+  if (!stem || !preview.toLowerCase().startsWith(stem.toLowerCase())) return preview;
+  return preview
+    .slice(stem.length)
+    .replace(/^[\s.!?…,:;–—-]+/, "")
+    .trim();
+}
+
+function plainAnswer(text: string): string {
+  return text
+    .replace(/```[\s\S]*?(```|$)/g, " ")
+    .replace(/~~~[\s\S]*?(~~~|$)/g, " ")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
+    .replace(/[*_`~]+/g, "")
+    .replace(/<[^>\n]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstAtxHeading(source: string): string | null {
+  const match = /^ {0,3}#{1,6}[ \t]+([^\n]*)$/m.exec(source);
+  if (!match?.[1]) return null;
+  const plain = match[1]
+    .replace(/[ \t]+#+\s*$/, "")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`~]+/g, "")
+    .replace(/<[^>\n]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain || null;
+}
+
+/** A period in "1.2" or "e.g. the" does not end the sentence. */
+function firstSentence(plain: string): string {
+  const match = /^.+?[.!?…](?=\s+[A-Z]|\s*$)/.exec(plain);
+  return (match?.[0] ?? plain).trim();
+}
+
+function clipTitle(title: string): string {
+  if (title.length <= ANSWER_TITLE_MAX) return title;
+  const cut = title.slice(0, ANSWER_TITLE_MAX - 1);
+  const space = cut.lastIndexOf(" ");
+  const shortened = (space >= 32 ? cut.slice(0, space) : cut).trimEnd();
+  return `${shortened}…`;
+}
+
+/**
+ * The title to show for an output. A stored model name ("default") is ignored
+ * so a kept answer still gets its heading or first sentence.
+ */
+export function chatOutputTitle(output: Pick<ChatOutput, "text" | "title" | "files">): string {
+  const fromAnswer = answerTitle(output.text);
+  if (fromAnswer) return fromAnswer;
+  const stored = output.title.trim();
+  if (stored && stored.toLowerCase() !== "default") return stored;
+  return formatEditedFiles(output.files.map((file) => file.path)) ?? "Finished output";
+}
+
+function withChatOutputTitle(output: ChatOutput): ChatOutput {
+  const title = chatOutputTitle(output);
+  return title === output.title ? output : { ...output, title };
 }
 
 /**
@@ -159,7 +235,6 @@ export function outputPreviewText(text: string): string {
  */
 export function deriveChatOutputs(
   input: TurnFilesSource & {
-    readonly mainLabel: string;
     readonly messages: ReadonlyArray<
       Pick<ChatMessage, "role" | "text" | "turnId" | "createdAt" | "updatedAt">
     >;
@@ -184,12 +259,13 @@ export function deriveChatOutputs(
     const files = turnFiles(input, turnId);
     if (turn.texts.length === 0 && files.length === 0) continue;
     const latestState = input.latestTurn?.turnId === turnId ? input.latestTurn.state : null;
+    const text = turn.texts.join("\n\n");
     outputs.push({
       id: `turn:${turnId}`,
       kind: "turn",
       turnId,
-      title: input.mainLabel,
-      text: turn.texts.join("\n\n"),
+      title: chatOutputTitle({ text, title: "", files }),
+      text,
       files,
       outcome:
         latestState === "interrupted" ? "stopped" : latestState === "error" ? "failed" : "done",
@@ -207,7 +283,11 @@ export function deriveChatOutputs(
       id: `agent:${agent.id}`,
       kind: "subagent",
       turnId: null,
-      title: agent.title,
+      title: chatOutputTitle({
+        text,
+        title: agent.title.trim().toLowerCase() === "default" ? "" : agent.title,
+        files: [],
+      }),
       text,
       files: [],
       outcome: state === "failed" ? "failed" : state === "stopped" ? "stopped" : "done",
@@ -233,14 +313,15 @@ export function mergeChatOutputs(
   kept: ReadonlyArray<ChatOutput>,
   next: ReadonlyArray<ChatOutput>,
 ): ChatOutput[] {
-  const byId = new Map(kept.map((output) => [output.id, output]));
+  const byId = new Map(kept.map((output) => [output.id, withChatOutputTitle(output)]));
   for (const output of next) {
-    const previous = byId.get(output.id);
+    const titled = withChatOutputTitle(output);
+    const previous = byId.get(titled.id);
     byId.set(
-      output.id,
-      previous && previous.outcome !== "done" && output.outcome === "done"
-        ? { ...output, outcome: previous.outcome }
-        : output,
+      titled.id,
+      previous && previous.outcome !== "done" && titled.outcome === "done"
+        ? { ...titled, outcome: previous.outcome }
+        : titled,
     );
   }
   return [...byId.values()].toSorted(compareNewestFirst);
@@ -251,7 +332,7 @@ export function chatOutputsSignature(outputs: ReadonlyArray<ChatOutput>): string
   return outputs
     .map(
       (output) =>
-        `${output.id}|${output.outcome}|${output.completedAt}|${output.text.length}|${output.files.length}`,
+        `${output.id}|${output.title.replaceAll("\n", " ")}|${output.outcome}|${output.completedAt}|${output.text.length}|${output.files.length}`,
     )
     .join("\n");
 }

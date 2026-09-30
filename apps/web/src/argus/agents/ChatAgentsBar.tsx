@@ -1,9 +1,7 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 
-import ChatMarkdown from "../../components/ChatMarkdown";
 import { composerFloatingLayerProps } from "../../components/chat/composerEventScope";
 import {
   Dialog,
@@ -16,12 +14,14 @@ import { isContextMenuOpen } from "../../contextMenuFallback";
 import { cn } from "../../lib/utils";
 import { formatShortTimestamp } from "../../timestampFormat";
 import {
+  chatOutputTitle,
   formatEditedFiles,
-  outputPreviewText,
+  outputRowPreview,
   type ChatAgentState,
   type ChatAgentStatus,
   type ChatOutput,
 } from "./chatAgents";
+import { FocusMarkdown, SCAN_TITLE_CLASS } from "./FocusMarkdown";
 
 export type ChatSurfaceView = "transcript" | "outputs" | "docs";
 
@@ -236,12 +236,12 @@ export function ChatSurfacePanel({
 
 /** One output or doc in full: a light, high-contrast sheet over a darkened, blurred window. */
 export function ChatFocusDialog({
-  label,
+  title,
   meta,
   onClose,
   children,
 }: {
-  label: string;
+  title: string;
   meta: ReactNode;
   onClose: () => void;
   children: ReactNode;
@@ -262,8 +262,10 @@ export function ChatFocusDialog({
         className="argus-focus-doc max-h-[88vh] max-w-4xl"
       >
         <DialogHeader className="gap-1 pe-12 pb-3">
-          <DialogTitle className="sr-only">{label}</DialogTitle>
-          <div className="flex min-w-0 items-center gap-1.5 text-xs">{meta}</div>
+          <DialogTitle className={SCAN_TITLE_CLASS}>{title}</DialogTitle>
+          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {meta}
+          </div>
         </DialogHeader>
         <DialogPanel className="flex flex-col gap-4 pt-0">{children}</DialogPanel>
       </DialogPopup>
@@ -317,44 +319,26 @@ function OutputFiles({
   );
 }
 
-function OutputMeta({
-  output,
-  timestampFormat,
-}: {
-  output: ChatOutput;
-  timestampFormat: TimestampFormat;
-}) {
-  return (
-    <>
-      <AgentDot state={OUTCOME_STATE[output.outcome]} />
-      <span className="truncate font-medium">{output.title}</span>
-      {output.kind === "subagent" ? <span className="text-muted-foreground">subagent</span> : null}
-      <span className="ms-auto shrink-0 text-muted-foreground">
-        {STATE_LABEL[OUTCOME_STATE[output.outcome]]} ·{" "}
-        {formatShortTimestamp(output.completedAt, timestampFormat)}
-      </span>
-    </>
-  );
+function outputWhen(output: ChatOutput, timestampFormat: TimestampFormat): string {
+  const when = `${STATE_LABEL[OUTCOME_STATE[output.outcome]]} · ${formatShortTimestamp(output.completedAt, timestampFormat)}`;
+  return output.kind === "subagent" ? `subagent · ${when}` : when;
 }
 
 /** Every finished output of the chat, newest first; an entry opens in the focus modal. */
 export const ChatOutputsList = memo(function ChatOutputsList({
   outputs,
-  cwd,
-  threadRef,
   timestampFormat,
   onOpenFile,
   onDismiss,
 }: {
   outputs: ReadonlyArray<ChatOutput>;
-  cwd: string | undefined;
-  threadRef: ScopedThreadRef | undefined;
   timestampFormat: TimestampFormat;
   onOpenFile: (output: ChatOutput, path: string) => void;
   onDismiss: () => void;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const focused = focusedId === null ? null : outputs.find((output) => output.id === focusedId);
+  const focusedTitle = focused ? chatOutputTitle(focused) : null;
   return (
     <>
       <ChatSurfaceHeader title="Outputs">
@@ -367,25 +351,38 @@ export const ChatOutputsList = memo(function ChatOutputsList({
       ) : (
         <ul className="min-h-0 flex-1 divide-y divide-border/60 overflow-y-auto">
           {outputs.map((output) => {
-            const preview = outputPreviewText(output.text);
+            const title = chatOutputTitle(output);
+            const preview = outputRowPreview(output.text, title);
             const edited = formatEditedFiles(output.files.map((file) => file.path));
             return (
               <li key={output.id}>
                 <button
                   type="button"
                   aria-haspopup="dialog"
-                  className="flex w-full min-w-0 flex-col gap-1 px-3 py-2.5 text-left hover:bg-accent/60"
+                  className="flex w-full min-w-0 items-start gap-2 px-3 py-3 text-left hover:bg-accent/60"
                   onClick={() => setFocusedId(output.id)}
                 >
-                  <span className="flex w-full min-w-0 items-center gap-1.5 text-xs">
-                    <OutputMeta output={output} timestampFormat={timestampFormat} />
+                  <span className="mt-1.5">
+                    <AgentDot state={OUTCOME_STATE[output.outcome]} />
                   </span>
-                  {preview ? (
-                    <span className="line-clamp-2 text-sm text-foreground">{preview}</span>
-                  ) : null}
-                  {edited ? (
-                    <span className="truncate text-xs text-muted-foreground">{edited}</span>
-                  ) : null}
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="flex min-w-0 items-start gap-3">
+                      <span className={cn(SCAN_TITLE_CLASS, "line-clamp-2 min-w-0 flex-1")}>
+                        {title}
+                      </span>
+                      <span className="shrink-0 pt-0.5 text-xs whitespace-nowrap text-muted-foreground">
+                        {outputWhen(output, timestampFormat)}
+                      </span>
+                    </span>
+                    {preview ? (
+                      <span className="line-clamp-2 text-[0.8125rem] leading-5 text-muted-foreground">
+                        {preview}
+                      </span>
+                    ) : null}
+                    {edited && edited !== title ? (
+                      <span className="truncate text-xs text-muted-foreground">{edited}</span>
+                    ) : null}
+                  </span>
                 </button>
               </li>
             );
@@ -394,13 +391,16 @@ export const ChatOutputsList = memo(function ChatOutputsList({
       )}
       {focused ? (
         <ChatFocusDialog
-          label={`${focused.title} output`}
-          meta={<OutputMeta output={focused} timestampFormat={timestampFormat} />}
+          title={focusedTitle ?? focused.title}
+          meta={
+            <>
+              <AgentDot state={OUTCOME_STATE[focused.outcome]} />
+              <span className="ms-auto shrink-0">{outputWhen(focused, timestampFormat)}</span>
+            </>
+          }
           onClose={onDismiss}
         >
-          {focused.text ? (
-            <ChatMarkdown text={focused.text} cwd={cwd} threadRef={threadRef} />
-          ) : null}
+          {focused.text ? <FocusMarkdown text={focused.text} /> : null}
           {focused.files.length > 0 ? (
             <div className="flex flex-col gap-1.5 border-t pt-3">
               <span className="text-xs font-medium text-muted-foreground">

@@ -1,15 +1,15 @@
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { SearchIcon } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 
-import ChatMarkdown from "../../components/ChatMarkdown";
 import {
   useProjectEntriesQuery,
   useProjectFileQuery,
 } from "../../components/files/projectFilesQueryState";
-import { resolvePathLinkTarget } from "../../terminal-links";
+import { cn } from "../../lib/utils";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { ChatFocusDialog, ChatSurfaceHeader } from "./ChatAgentsBar";
+import { FocusMarkdown, SCAN_TITLE_CLASS } from "./FocusMarkdown";
 import { filterProjectDocs, selectProjectDocs, type ProjectDoc } from "./projectDocs";
 
 function modifiedLabel(doc: ProjectDoc): string | null {
@@ -19,42 +19,30 @@ function modifiedLabel(doc: ProjectDoc): string | null {
 function ChatDocDialog({
   environmentId,
   cwd,
-  threadRef,
   doc,
   onClose,
 }: {
   environmentId: EnvironmentId;
   cwd: string;
-  threadRef: ScopedThreadRef | undefined;
   doc: ProjectDoc;
   onClose: () => void;
 }) {
   const file = useProjectFileQuery(environmentId, cwd, doc.path);
-  const folderEnd = doc.path.lastIndexOf("/");
-  const imageBaseDir =
-    folderEnd >= 0 ? resolvePathLinkTarget(doc.path.slice(0, folderEnd), cwd) : cwd;
   const modified = modifiedLabel(doc);
   return (
     <ChatFocusDialog
-      label={`${doc.path} doc`}
+      title={doc.title}
       meta={
         <>
-          <span className="min-w-0 truncate font-mono font-medium">{doc.path}</span>
-          {modified ? (
-            <span className="ms-auto shrink-0 text-muted-foreground">Edited {modified}</span>
-          ) : null}
+          <span className="min-w-0 truncate font-mono">{doc.path}</span>
+          {modified ? <span className="ms-auto shrink-0">Edited {modified}</span> : null}
         </>
       }
       onClose={onClose}
     >
       {file.data ? (
         <>
-          <ChatMarkdown
-            text={file.data.contents}
-            cwd={cwd}
-            imageBaseDir={imageBaseDir}
-            threadRef={threadRef}
-          />
+          <FocusMarkdown text={file.data.contents} />
           {file.data.truncated ? (
             <p className="border-t pt-3 text-xs text-muted-foreground">
               This doc is longer than the preview limit; the rest is not shown.
@@ -77,12 +65,10 @@ function ChatDocDialog({
 export const ChatDocsList = memo(function ChatDocsList({
   environmentId,
   cwd,
-  threadRef,
   onDismiss,
 }: {
   environmentId: EnvironmentId;
   cwd: string;
-  threadRef: ScopedThreadRef | undefined;
   onDismiss: () => void;
 }) {
   const entries = useProjectEntriesQuery(environmentId, cwd);
@@ -134,13 +120,11 @@ export const ChatDocsList = memo(function ChatDocsList({
                 <button
                   type="button"
                   aria-haspopup="dialog"
-                  className="flex w-full min-w-0 items-baseline gap-3 px-3 py-2 text-left hover:bg-accent/60"
+                  className="flex w-full min-w-0 items-start gap-3 px-3 py-3 text-left hover:bg-accent/60"
                   onClick={() => setOpenPath(doc.path)}
                 >
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {doc.title}
-                    </span>
+                    <span className={cn(SCAN_TITLE_CLASS, "line-clamp-2")}>{doc.title}</span>
                     <span className="truncate font-mono text-xs text-muted-foreground">
                       {doc.path}
                     </span>
@@ -155,13 +139,7 @@ export const ChatDocsList = memo(function ChatDocsList({
         </ul>
       )}
       {openDoc ? (
-        <ChatDocDialog
-          environmentId={environmentId}
-          cwd={cwd}
-          threadRef={threadRef}
-          doc={openDoc}
-          onClose={onDismiss}
-        />
+        <ChatDocDialog environmentId={environmentId} cwd={cwd} doc={openDoc} onClose={onDismiss} />
       ) : null}
     </>
   );

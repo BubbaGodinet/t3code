@@ -7,11 +7,15 @@ import { TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  answerTitle,
+  chatOutputTitle,
+  chatOutputsSignature,
   deriveChatAgents,
   deriveChatOutputs,
   formatEditedFiles,
   mergeChatOutputs,
   outputPreviewText,
+  outputRowPreview,
 } from "./chatAgents";
 
 const turnOne = TurnId.make("turn-1");
@@ -107,7 +111,6 @@ describe("deriveChatAgents", () => {
 
 describe("chat outputs", () => {
   const base = {
-    mainLabel: "claude-opus",
     agentPanelModel: emptyAgentPanelModel(),
     workLogEntries: [],
   };
@@ -134,7 +137,7 @@ describe("chat outputs", () => {
         id: "turn:turn-1",
         kind: "turn",
         turnId: turnOne,
-        title: "claude-opus",
+        title: "First half.",
         text: "First half.\n\nSecond half.",
         files: [{ path: "src/a.ts", additions: 3, deletions: 1 }],
         outcome: "stopped",
@@ -201,6 +204,63 @@ describe("chat outputs", () => {
       mergeChatOutputs(kept, reloaded).find((output) => output.id === "turn:turn-1"),
     ).toMatchObject({ outcome: "stopped", text: "Answer one" });
   });
+
+  it("replaces a stored model-name title when the answer is derived again", () => {
+    const [output] = deriveChatOutputs({
+      ...base,
+      messages: [assistant("m1", turnOne, "2026-01-01T00:00:02Z", "Answer one")],
+      unsettledTurnId: null,
+      latestTurn: { turnId: turnOne, state: "completed" },
+      checkpoints: [],
+    });
+    const stale = { ...output!, title: "default" };
+    expect(mergeChatOutputs([stale], [output!])[0]?.title).toBe("Answer one");
+    expect(chatOutputsSignature([stale])).not.toBe(chatOutputsSignature([output!]));
+  });
+
+  it("renames a kept output from its saved answer when that turn is no longer loaded", () => {
+    const kept = {
+      id: "turn:turn-1",
+      kind: "turn" as const,
+      turnId: turnOne,
+      title: "default",
+      text: "I'll pull up PR #1201's description and diff. The diff is a script.",
+      files: [],
+      outcome: "done" as const,
+      completedAt: "2026-01-01T00:00:02Z",
+    };
+    expect(chatOutputTitle(kept)).toBe("I'll pull up PR #1201's description and diff.");
+    expect(mergeChatOutputs([kept], [])[0]?.title).toBe(
+      "I'll pull up PR #1201's description and diff.",
+    );
+  });
+});
+
+describe("answerTitle", () => {
+  it("uses the first markdown heading, not the opening sentence", () => {
+    expect(answerTitle("# Author Sync\n\nA pipeline that copies authors.")).toBe("Author Sync");
+    expect(answerTitle("Intro line.\n\n## Architecture\n\nDetails.")).toBe("Architecture");
+    expect(answerTitle("## `parser` **fix**\n\nDone.")).toBe("parser fix");
+  });
+
+  it("ignores a heading that only appears inside a code fence", () => {
+    expect(answerTitle("```md\n# Not a title\n```\n\nThe real answer starts here.")).toBe(
+      "The real answer starts here.",
+    );
+  });
+
+  it("uses the first sentence when the answer has no heading", () => {
+    expect(answerTitle("I'll pull up PR #1201's description and diff. The diff is a script.")).toBe(
+      "I'll pull up PR #1201's description and diff.",
+    );
+    expect(answerTitle("Shipped in 1.2 today. More later.")).toBe("Shipped in 1.2 today.");
+  });
+
+  it("shortens a long first sentence", () => {
+    const title = answerTitle(`${"word ".repeat(40)}end.`);
+    expect(title?.endsWith("…")).toBe(true);
+    expect(title!.length).toBeLessThanOrEqual(80);
+  });
 });
 
 describe("outputPreviewText", () => {
@@ -210,6 +270,18 @@ describe("outputPreviewText", () => {
         "## Summary\n\n- Fixed **the** `parser`\n- See [docs](https://x.dev)\n\n```ts\nconst a = 1;\n```\nDone.",
       ),
     ).toBe("Summary Fixed the parser See docs Done.");
+  });
+
+  it("drops a repeated title from the row preview", () => {
+    expect(
+      outputRowPreview(
+        "I'll pull up PR #1201's description and diff. The diff is a script.",
+        "I'll pull up PR #1201's description and diff.",
+      ),
+    ).toBe("The diff is a script.");
+    expect(outputRowPreview("# Author Sync\n\nA complete ETL pipeline.", "Author Sync")).toBe(
+      "A complete ETL pipeline.",
+    );
   });
 
   it("clips long answers", () => {
