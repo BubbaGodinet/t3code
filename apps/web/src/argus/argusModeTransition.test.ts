@@ -69,6 +69,37 @@ describe("runArgusModeTransition", () => {
     expect(dataset.argusModeTransition).toBeUndefined();
   });
 
+  it("melts through the view transition when Command could not be snapshotted", async () => {
+    stubWindow(false);
+    const dataset: Record<string, string> = {};
+    const startViewTransition = vi.fn((update: () => Promise<void>) => ({
+      finished: update(),
+    }));
+    vi.stubGlobal("document", {
+      documentElement: { dataset },
+      querySelector: () => ({}),
+      startViewTransition,
+    });
+    const update = vi.fn();
+
+    await runArgusModeTransition("melt", "sanctuary", update, Promise.resolve(null));
+
+    expect(startViewTransition).toHaveBeenCalledOnce();
+    expect(update).toHaveBeenCalledOnce();
+    expect(dataset.argusModeTransition).toBeUndefined();
+  });
+
+  it("does not wait on the Command snapshot under reduced motion", async () => {
+    stubWindow(true);
+    const dataset: Record<string, string> = {};
+    vi.stubGlobal("document", { documentElement: { dataset } });
+    const update = vi.fn();
+
+    await runArgusModeTransition("melt", "sanctuary", update, new Promise(() => {}));
+
+    expect(update).toHaveBeenCalledOnce();
+  });
+
   it("still switches when the view transition fails", async () => {
     stubWindow(false);
     const dataset: Record<string, string> = {};

@@ -154,4 +154,5 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(SanctuaryIpc.disconnectSanctuarySimplefin);
   yield* ipc.handle(SanctuaryIpc.fetchSanctuarySimplefinAccounts);
   yield* ipc.handle(SanctuaryIpc.runSanctuaryAi);
+  yield* ipc.handle(SanctuaryIpc.captureSanctuaryWindow);
 });

@@ -401,6 +401,7 @@ contextBridge.exposeInMainWorld("sanctuaryDesktop", {
   simplefinAccounts: () => ipcRenderer.invoke(IpcChannels.SANCTUARY_SIMPLEFIN_ACCOUNTS_CHANNEL),
   ai: (task: "food" | "ramble", text: string) =>
     ipcRenderer.invoke(IpcChannels.SANCTUARY_AI_CHANNEL, { task, text }),
+  captureWindow: () => ipcRenderer.invoke(IpcChannels.SANCTUARY_CAPTURE_WINDOW_CHANNEL),
 });
 
 contextBridge.exposeInMainWorld("argusDesktop", {

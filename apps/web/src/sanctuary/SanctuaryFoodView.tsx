@@ -110,7 +110,7 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
           <SanctuaryButton onClick={() => setDate(shiftDay(date, -1))} label="Previous day">
             <ChevronLeftIcon className="size-4" />
           </SanctuaryButton>
-          <span className="min-w-24 text-center text-sm text-white/80">
+          <span className="min-w-24 text-center text-sm text-ink/90">
             {friendlyDay(date, today)}
           </span>
           <SanctuaryButton
@@ -133,7 +133,7 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
             return (
               <div key={key} className={cn(glassTile, "px-4 py-3")}>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-xs text-white/55">{label}</span>
+                  <span className="text-xs text-ink/75">{label}</span>
                   {editingGoals ? (
                     <input
                       type="number"
@@ -144,21 +144,21 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
                       className={cn(fieldClass, "h-7 w-20 px-2 py-0 text-right text-xs")}
                     />
                   ) : (
-                    <span className="text-xs text-white/45">
+                    <span className="text-xs text-ink/75">
                       goal {format(goal)}
                       {unit}
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-2xl font-medium text-white tabular-nums">
+                <p className="mt-1 text-2xl font-medium text-ink tabular-nums">
                   {format(consumed)}
-                  <span className="ml-0.5 text-sm text-white/50">{unit}</span>
+                  <span className="ml-0.5 text-sm text-ink/75">{unit}</span>
                 </p>
-                <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+                <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink/10">
                   <div
                     className={cn(
                       "h-full rounded-full",
-                      remaining < 0 ? "bg-amber-300/80" : "bg-white/70",
+                      remaining < 0 ? "bg-amber-600/85" : "bg-ink/70",
                     )}
                     style={{ width: `${share * 100}%` }}
                   />
@@ -166,7 +166,7 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
                 <p
                   className={cn(
                     "mt-1.5 text-xs tabular-nums",
-                    remaining < 0 ? "text-amber-200/90" : "text-white/55",
+                    remaining < 0 ? "text-amber-800" : "text-ink/75",
                   )}
                 >
                   {remaining < 0
@@ -181,7 +181,7 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
           <button
             type="button"
             onClick={() => setEditingGoals((open) => !open)}
-            className="text-xs text-white/50 underline-offset-4 hover:text-white hover:underline"
+            className="text-xs text-ink/75 underline-offset-4 hover:text-ink hover:underline"
           >
             {editingGoals ? "Done editing goals" : "Edit goals"}
           </button>
@@ -195,7 +195,7 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
         ) : (
           <table className="mt-6 w-full border-separate border-spacing-0 text-sm">
             <thead>
-              <tr className="text-left text-xs text-white/50">
+              <tr className="text-left text-xs text-ink/75">
                 <th className="pb-2 font-normal">Food</th>
                 <th className="w-28 pb-2 font-normal">Portion</th>
                 {MACROS.map(({ key, label }) => (
@@ -211,7 +211,7 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
                 <tr>
                   <td
                     colSpan={7}
-                    className="border-t border-white/10 pt-4 pb-1 text-xs font-medium uppercase tracking-[0.16em] text-white/60"
+                    className="border-t border-ink/12 pt-4 pb-1 text-xs font-medium uppercase tracking-[0.16em] text-ink/75"
                   >
                     {SLOT_LABEL[group.slot]}
                   </td>
@@ -219,12 +219,12 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
                 {group.meals.map((meal) => (
                   <MealRows key={meal.id} meal={meal} />
                 ))}
-                <tr className="text-white/70">
+                <tr className="text-ink/85">
                   <td colSpan={2} className="pt-1 pb-3 text-xs">
                     <button
                       type="button"
                       onClick={() => addMeal(group.slot)}
-                      className="inline-flex items-center gap-1 text-white/50 hover:text-white"
+                      className="inline-flex items-center gap-1 text-ink/75 hover:text-ink"
                     >
                       <PlusIcon className="size-3" /> Add food
                     </button>
@@ -248,14 +248,11 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
               ).map(([label, values]) => (
                 <tr
                   key={label}
-                  className={label === "Consumed" ? "font-medium text-white" : "text-white/65"}
+                  className={label === "Consumed" ? "font-medium text-ink" : "text-ink/85"}
                 >
                   <td
                     colSpan={2}
-                    className={cn(
-                      "py-1.5",
-                      label === "Consumed" && "border-t border-white/20 pt-3",
-                    )}
+                    className={cn("py-1.5", label === "Consumed" && "border-t border-ink/20 pt-3")}
                   >
                     {label}
                   </td>
@@ -264,14 +261,14 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
                       key={key}
                       className={cn(
                         "py-1.5 text-right tabular-nums",
-                        label === "Consumed" && "border-t border-white/20 pt-3",
-                        label === "Remaining" && values[key] < 0 && "text-amber-200/90",
+                        label === "Consumed" && "border-t border-ink/20 pt-3",
+                        label === "Remaining" && values[key] < 0 && "text-amber-800",
                       )}
                     >
                       {format(values[key])}
                     </td>
                   ))}
-                  <td className={cn(label === "Consumed" && "border-t border-white/20")} />
+                  <td className={cn(label === "Consumed" && "border-t border-ink/20")} />
                 </tr>
               ))}
             </tfoot>
@@ -280,8 +277,8 @@ export function SanctuaryFood({ onBack }: { onBack: () => void }) {
         {day.meals.some((group) =>
           group.meals.some((meal) => meal.items.some((item) => !item.matched)),
         ) ? (
-          <p className="mt-3 flex items-center gap-2 text-xs text-white/50">
-            <span className="size-1.5 rounded-full bg-amber-300" />
+          <p className="mt-3 flex items-center gap-2 text-xs text-ink/75">
+            <span className="size-1.5 rounded-full bg-amber-600" />
             Not in the local food table. Type in its numbers and the totals update.
           </p>
         ) : null}
@@ -326,15 +323,15 @@ function MealRows({ meal }: { meal: Meal }) {
     }));
 
   const cell =
-    "h-8 w-full rounded-md bg-transparent px-1.5 text-white outline-none hover:bg-white/5 focus:bg-black/20";
+    "h-8 w-full rounded-md bg-transparent px-1.5 text-ink outline-none hover:bg-white/35 focus:bg-white/50";
 
   return (
     <>
       {meal.transcript ? (
         <tr>
-          <td colSpan={7} className="pb-1 text-xs text-white/45">
+          <td colSpan={7} className="pb-1 text-xs text-ink/75">
             <span className="italic">“{meal.transcript}”</span>
-            <span className="ml-2 not-italic text-white/35">
+            <span className="ml-2 not-italic text-ink/60">
               {meal.source === "ai" ? "Estimated by AI" : "Estimated locally"}
               {meal.edited ? " · edited" : ""}
             </span>
@@ -342,7 +339,7 @@ function MealRows({ meal }: { meal: Meal }) {
               value={meal.slot}
               onChange={(event) => setSlot(event.target.value as MealSlot)}
               aria-label="Meal"
-              className="ml-2 rounded bg-transparent text-white/50 outline-none hover:text-white"
+              className="ml-2 rounded bg-transparent text-ink/75 outline-none hover:text-ink"
             >
               {MEAL_SLOTS.map((slot) => (
                 <option key={slot} value={slot} className="text-black">
@@ -350,11 +347,7 @@ function MealRows({ meal }: { meal: Meal }) {
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={removeMeal}
-              className="ml-2 text-white/35 hover:text-white"
-            >
+            <button type="button" onClick={removeMeal} className="ml-2 text-ink/60 hover:text-ink">
               Remove meal
             </button>
           </td>
@@ -367,7 +360,7 @@ function MealRows({ meal }: { meal: Meal }) {
               {!item.matched ? (
                 <span
                   aria-label="Needs numbers"
-                  className="size-1.5 shrink-0 rounded-full bg-amber-300"
+                  className="size-1.5 shrink-0 rounded-full bg-amber-600"
                 />
               ) : null}
               <input
@@ -384,7 +377,7 @@ function MealRows({ meal }: { meal: Meal }) {
               value={item.portion}
               aria-label="Portion"
               onChange={(event) => setItem(item.id, { portion: event.target.value })}
-              className={cn(cell, "text-white/75")}
+              className={cn(cell, "text-ink/85")}
             />
           </td>
           {MACROS.map(({ key, label }) => (
@@ -407,7 +400,7 @@ function MealRows({ meal }: { meal: Meal }) {
               type="button"
               onClick={() => removeItem(item.id)}
               aria-label="Remove"
-              className="rounded p-1 text-white/0 transition-colors group-hover:text-white/45 hover:!text-white"
+              className="rounded p-1 text-ink/0 transition-colors group-hover:text-ink/75 hover:!text-ink"
             >
               <XIcon className="size-3.5" />
             </button>

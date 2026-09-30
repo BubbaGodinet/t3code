@@ -19,7 +19,7 @@ function RemoveButton({ onClick }: { onClick: () => void }) {
       type="button"
       aria-label="Remove"
       onClick={onClick}
-      className="rounded p-1 text-white/0 transition-colors group-hover:text-white/40 hover:!text-white"
+      className="rounded p-1 text-ink/0 transition-colors group-hover:text-ink/60 hover:!text-ink"
     >
       <XIcon className="size-3.5" />
     </button>
@@ -77,11 +77,9 @@ export function SanctuaryMind({ onBack }: { onBack: () => void }) {
         checked={task.done}
         onChange={() => toggle(task.id)}
         aria-label={task.text}
-        className="size-4 shrink-0 accent-white"
+        className="size-4 shrink-0 accent-ink"
       />
-      <span
-        className={cn("flex-1 text-sm", task.done ? "text-white/40 line-through" : "text-white")}
-      >
+      <span className={cn("flex-1 text-sm", task.done ? "text-ink/60 line-through" : "text-ink")}>
         {task.text}
       </span>
       <RemoveButton onClick={() => removeTask(task.id)} />
@@ -113,7 +111,7 @@ export function SanctuaryMind({ onBack }: { onBack: () => void }) {
             <button
               type="button"
               onClick={() => setShowDone((shown) => !shown)}
-              className="mt-2 text-xs text-white/50 hover:text-white"
+              className="mt-2 text-xs text-ink/75 hover:text-ink"
             >
               {showDone ? "Hide" : "Show"} done ({done.length})
             </button>
@@ -127,10 +125,10 @@ export function SanctuaryMind({ onBack }: { onBack: () => void }) {
         ) : (
           <ul className="space-y-1">
             {notes.map((note) => (
-              <li key={note.id} className="group flex items-start gap-3 py-1 text-sm text-white/90">
-                <span className="mt-2 size-1 shrink-0 rounded-full bg-white/50" />
+              <li key={note.id} className="group flex items-start gap-3 py-1 text-sm text-ink/90">
+                <span className="mt-2 size-1 shrink-0 rounded-full bg-ink/50" />
                 <span className="flex-1 leading-6">{note.text}</span>
-                <span className="mt-0.5 text-xs text-white/35">
+                <span className="mt-0.5 text-xs text-ink/60">
                   {friendlyDay(dayKey(new Date(note.at)), today)}
                 </span>
                 <RemoveButton onClick={() => removeNote(note.id)} />
@@ -146,7 +144,7 @@ export function SanctuaryMind({ onBack }: { onBack: () => void }) {
                 <button
                   type="button"
                   onClick={() => setShowRambles((shown) => !shown)}
-                  className="text-xs text-white/50 hover:text-white"
+                  className="text-xs text-ink/75 hover:text-ink"
                 >
                   {showRambles ? "Hide" : `Show ${rambles.length}`}
                 </button>
@@ -157,8 +155,8 @@ export function SanctuaryMind({ onBack }: { onBack: () => void }) {
             {showRambles ? (
               <ul className="space-y-3">
                 {rambles.map((ramble) => (
-                  <li key={ramble.id} className="group rounded-xl border border-white/8 px-4 py-3">
-                    <div className="flex items-center justify-between text-xs text-white/40">
+                  <li key={ramble.id} className="group rounded-xl border border-ink/12 px-4 py-3">
+                    <div className="flex items-center justify-between text-xs text-ink/60">
                       <span>
                         {new Date(ramble.at).toLocaleString(undefined, {
                           weekday: "short",
@@ -171,7 +169,7 @@ export function SanctuaryMind({ onBack }: { onBack: () => void }) {
                       </span>
                       <RemoveButton onClick={() => removeRamble(ramble.id)} />
                     </div>
-                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-white/80">
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink/90">
                       {ramble.text}
                     </p>
                   </li>
@@ -211,7 +209,7 @@ export function SanctuaryGratitude({ onBack }: { onBack: () => void }) {
                   .filter((entry) => entry.date === date)
                   .map((entry) => (
                     <li key={entry.id} className="group flex items-start gap-3">
-                      <p className="flex-1 whitespace-pre-wrap font-serif text-[1.05rem] leading-7 text-white/90">
+                      <p className="flex-1 whitespace-pre-wrap font-serif text-[1.05rem] leading-7 text-ink/90">
                         {entry.text}
                       </p>
                       <RemoveButton onClick={() => remove(entry.id)} />

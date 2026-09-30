@@ -84,17 +84,17 @@ function SanctuaryHome({ onOpen }: { onOpen: (card: Card, place?: ScripturePlace
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto px-8 py-8">
       <header className="mx-auto flex max-w-2xl flex-col items-center text-center">
-        <p className="text-xs uppercase tracking-[0.22em] text-white/55">
+        <p className="text-xs uppercase tracking-[0.22em] text-ink/75">
           {today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
         </p>
         <button
           type="button"
           onClick={() => onOpen("scripture", verse)}
-          className="mt-4 rounded-xl px-3 py-1 font-serif text-lg leading-relaxed text-white/90 transition-colors hover:bg-white/5"
+          className="mt-4 rounded-xl px-3 py-1 font-serif text-lg leading-relaxed text-ink/90 transition-colors hover:bg-white/35"
         >
           “{verse.text}”
         </button>
-        <p className="mt-2 text-xs tracking-wide text-white/55">{scriptureReference(verse)}</p>
+        <p className="mt-2 text-xs tracking-wide text-ink/75">{scriptureReference(verse)}</p>
       </header>
       <EchoPanel onOpen={onOpen} />
       <SanctuaryCards onOpen={onOpen} />
@@ -177,7 +177,7 @@ function EchoPanel({ onOpen }: { onOpen: (card: Card) => void }) {
       <div
         role="tablist"
         aria-label="Echo mode"
-        className="flex rounded-full border border-white/10 bg-black/15 p-0.5"
+        className="flex rounded-full border border-white/50 bg-white/30 p-0.5"
       >
         {MODES.map((entry) => (
           <button
@@ -188,7 +188,7 @@ function EchoPanel({ onOpen }: { onOpen: (card: Card) => void }) {
             onClick={() => setMode(entry.mode)}
             className={cn(
               "h-7 rounded-full px-4 text-xs transition-colors",
-              entry.mode === mode ? "bg-white text-[#2b2450]" : "text-white/70 hover:text-white",
+              entry.mode === mode ? "bg-white text-ink shadow-sm" : "text-ink/85 hover:text-ink",
             )}
           >
             {entry.label}
@@ -202,13 +202,13 @@ function EchoPanel({ onOpen }: { onOpen: (card: Card) => void }) {
         className={cn(
           "mt-6 flex size-20 items-center justify-center rounded-full border transition-colors",
           listening
-            ? "border-white bg-white text-[#2b2450] shadow-[0_0_0_8px_rgb(255_255_255/0.12)]"
-            : "border-white/25 bg-white/10 text-white hover:bg-white/15",
+            ? "border-ink bg-ink text-white shadow-[0_0_0_8px_rgb(21_18_43/0.12)]"
+            : "border-white/60 bg-white/35 text-ink hover:bg-white/50",
         )}
       >
         {listening ? <SquareIcon className="size-6" /> : <MicIcon className="size-7" />}
       </button>
-      <p className="mt-2 text-xs font-medium tracking-[0.2em] text-white/60 uppercase">Echo</p>
+      <p className="mt-2 text-xs font-medium tracking-[0.2em] text-ink/75 uppercase">Echo</p>
       <textarea
         ref={field}
         value={text}
@@ -216,15 +216,15 @@ function EchoPanel({ onOpen }: { onOpen: (card: Card) => void }) {
         onKeyDown={onKeyDown}
         placeholder={current.placeholder}
         rows={3}
-        className="mt-5 w-full resize-none rounded-2xl border border-white/12 bg-black/20 px-4 py-3 text-sm leading-6 text-white placeholder:text-white/35 outline-none focus:border-white/30"
+        className="mt-5 w-full resize-none rounded-2xl border border-ink/12 bg-white/40 px-4 py-3 text-sm leading-6 text-ink placeholder:text-ink/60 outline-none focus:border-ink/35"
       />
       <div className="mt-2 flex w-full items-center justify-between gap-4">
-        <p className="text-xs text-white/45">{status ?? ENGINE_NOTE[engine]}</p>
+        <p className="text-xs text-ink/75">{status ?? ENGINE_NOTE[engine]}</p>
         <button
           type="button"
           onClick={save}
           disabled={!loaded || !text.trim()}
-          className="h-8 shrink-0 rounded-lg bg-white px-4 text-sm text-[#2b2450] transition-opacity disabled:opacity-30"
+          className="h-8 shrink-0 rounded-lg bg-ink px-4 text-sm text-white transition-opacity disabled:opacity-35"
         >
           Save {current.label.toLowerCase()}
         </button>
@@ -281,10 +281,10 @@ function SanctuaryCards({ onOpen }: { onOpen: (card: Card) => void }) {
           key={entry.card}
           type="button"
           onClick={() => onOpen(entry.card)}
-          className={cn(glassTile, "px-4 py-4 text-left transition-colors hover:bg-white/8")}
+          className={cn(glassTile, "px-4 py-4 text-left transition-colors hover:bg-white/35")}
         >
-          <span className="block text-sm font-medium text-white">{entry.title}</span>
-          <span className="mt-1 block truncate text-xs text-white/55 tabular-nums">
+          <span className="block text-sm font-medium text-ink">{entry.title}</span>
+          <span className="mt-1 block truncate text-xs text-ink/75 tabular-nums">
             {entry.detail}
           </span>
         </button>

@@ -96,8 +96,9 @@ html[data-argus-mode-transition]::view-transition-new(argus-mode-pill) {
   animation: none;
 }
 
-/* Command melts away, sagging and blurring as it fades, onto Sanctuary
-   already sitting beneath it. */
+/* Without a Command snapshot (the web), Command melts away, sagging and
+   blurring as it fades, onto Sanctuary already sitting beneath it. With one,
+   the melt is the WebGL shader in argusMelt.ts. */
 html[data-argus-mode-transition="melt"]::view-transition-old(root) {
   z-index: 1;
   transform-origin: top center;
@@ -123,8 +124,19 @@ html[data-argus-mode-transition="melt"]::view-transition-new(root) {
   }
 }
 
-/* Sanctuary's two halves part down the middle onto Command, which is already
-   live behind them. */
+/* Sanctuary's hazy white glass over the silk. Contrast is flattened before
+   brightening so the silk's dark folds lift enough to keep ink readable. */
+.argus-sanctuary-glass {
+  border: 1px solid rgb(255 255 255 / 0.45);
+  background: rgb(255 255 255 / 0.24);
+  box-shadow:
+    0 8px 32px rgb(0 0 0 / 0.18),
+    inset 0 1px 0 rgb(255 255 255 / 0.55);
+  backdrop-filter: blur(28px) contrast(0.55) brightness(1.6) saturate(1.2);
+}
+
+/* Sanctuary's two halves, mounted only for this, part down the middle onto
+   Command, which is already live behind them. */
 html[data-argus-mode-transition="split"] .argus-sanctuary-left {
   view-transition-name: argus-sanctuary-left;
   box-shadow: 12px 0 24px -16px rgb(0 0 0 / 0.45);
@@ -238,6 +250,8 @@ html[data-argus-mode-transition="split"]::view-transition-old(argus-sanctuary-ri
 
 @theme inline {
   --color-zinc-25: oklch(99.2% 0 0);
+  /* Sanctuary's text on its hazy white glass. */
+  --color-ink: #15122b;
   --animate-skeleton: skeleton 2.4s infinite;
   /* Duty-cycled indicator animations: long holds with stepped ramps, so the
      compositor updates discrete frames instead of every vsync. */

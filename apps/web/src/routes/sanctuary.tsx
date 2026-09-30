@@ -1,6 +1,8 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { type RefObject, useEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
+import { provideSanctuarySnapshot } from "../argus/argusMelt";
 import { ARGUS_SANCTUARY_SPACE_ATTRIBUTE } from "../argus/argusModeTransition";
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
@@ -99,15 +101,11 @@ function compileSilkProgram(gl: WebGLRenderingContext) {
 
 /**
  * Draws the silk into one canvas inside `host`. It runs at 30fps, pauses while the
- * window is hidden, and holds a still frame under reduced motion. When the space
- * splits open onto Command, the current frame is copied into each half's mirror so
- * the view transition carries the silk away with the halves.
+ * window is hidden, and holds a still frame under reduced motion. The returned ref
+ * draws the current frame and hands back the canvas, for the split to copy.
  */
-function useSanctuarySilk(
-  host: RefObject<HTMLDivElement | null>,
-  leftMirror: RefObject<HTMLCanvasElement | null>,
-  rightMirror: RefObject<HTMLCanvasElement | null>,
-) {
+function useSanctuarySilk(host: RefObject<HTMLDivElement | null>) {
+  const currentFrame = useRef<(() => HTMLCanvasElement) | null>(null);
   useEffect(() => {
     const hostElement = host.current;
     if (!hostElement) return;
@@ -135,8 +133,14 @@ function useSanctuarySilk(
       gl.uniform1f(silk.time, clock);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
+    const root = document.documentElement;
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick);
+      // Held while melting in, so the melt's painting of Sanctuary still matches when it fades away.
+      if (root.dataset.argusModeTransition === "melt") {
+        lastFrameAt = now;
+        return;
+      }
       const elapsed = now - lastFrameAt;
       if (elapsed < SILK_FRAME_MS) return;
       clock += (SILK_CLOCK_RATE * Math.min(elapsed, 100)) / 1000;
@@ -164,23 +168,9 @@ function useSanctuarySilk(
       draw();
     };
 
-    const root = document.documentElement;
-    const mirrorOnSplit = () => {
-      const splitting = root.dataset.argusModeTransition === "split";
-      if (splitting) draw();
-      const half = Math.round(canvas.width / 2);
-      const copy = (mirror: HTMLCanvasElement | null, sourceX: number, width: number) => {
-        if (!mirror) return;
-        mirror.hidden = !splitting;
-        if (!splitting) return;
-        mirror.width = width;
-        mirror.height = canvas.height;
-        mirror
-          .getContext("2d")
-          ?.drawImage(canvas, sourceX, 0, width, canvas.height, 0, 0, width, canvas.height);
-      };
-      copy(leftMirror.current, 0, half);
-      copy(rightMirror.current, half, canvas.width - half);
+    currentFrame.current = () => {
+      draw();
+      return canvas;
     };
 
     const onContextLost = (event: Event) => {
@@ -197,11 +187,6 @@ function useSanctuarySilk(
 
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(canvas);
-    const transitionObserver = new MutationObserver(mirrorOnSplit);
-    transitionObserver.observe(root, {
-      attributes: true,
-      attributeFilter: ["data-argus-mode-transition"],
-    });
     reducedMotion.addEventListener("change", sync);
     document.addEventListener("visibilitychange", sync);
     canvas.addEventListener("webglcontextlost", onContextLost);
@@ -210,9 +195,9 @@ function useSanctuarySilk(
     sync();
 
     return () => {
+      currentFrame.current = null;
       cancelAnimationFrame(frame);
       resizeObserver.disconnect();
-      transitionObserver.disconnect();
       reducedMotion.removeEventListener("change", sync);
       document.removeEventListener("visibilitychange", sync);
       canvas.removeEventListener("webglcontextlost", onContextLost);
@@ -220,12 +205,85 @@ function useSanctuarySilk(
       gl.getExtension("WEBGL_lose_context")?.loseContext();
       canvas.remove();
     };
-  }, [host, leftMirror, rightMirror]);
+  }, [host]);
+  return currentFrame;
+}
+
+/** Where the glass panel sits in the window, shared by the panel, its content, and the split halves. */
+const GLASS_FRAME =
+  "absolute inset-x-[max(1.5rem,calc((100%_-_72rem)/2))] top-[calc(var(--workspace-topbar-height)_+_1rem)] bottom-8 rounded-[20px]";
+
+function mirrorSilk(
+  canvas: HTMLCanvasElement,
+  left: HTMLCanvasElement | null,
+  right: HTMLCanvasElement | null,
+) {
+  const half = Math.round(canvas.width / 2);
+  const copy = (mirror: HTMLCanvasElement | null, sourceX: number, width: number) => {
+    if (!mirror) return;
+    mirror.width = width;
+    mirror.height = canvas.height;
+    mirror
+      .getContext("2d")
+      ?.drawImage(canvas, sourceX, 0, width, canvas.height, 0, 0, width, canvas.height);
+  };
+  copy(left, 0, half);
+  copy(right, half, canvas.width - half);
 }
 
 /**
- * One half of Sanctuary. Each half clips its own copy of the full-window glass
- * panel, so the panel parts down the middle with the halves.
+ * Sanctuary without its content, for the melt to melt into: the silk frame, and
+ * the glass panel drawn with the same filter and tint as `.argus-sanctuary-glass`.
+ */
+function paintSanctuary(
+  silk: HTMLCanvasElement | null,
+  glass: HTMLElement | null,
+  width: number,
+  height: number,
+): HTMLCanvasElement | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  const paintSilk = () => {
+    if (silk) context.drawImage(silk, 0, 0, width, height);
+    else context.fillRect(0, 0, width, height);
+  };
+  context.fillStyle = "#3e356e";
+  paintSilk();
+  if (!glass) return canvas;
+
+  const scale = width / window.innerWidth;
+  const rect = glass.getBoundingClientRect();
+  const x = rect.left * scale;
+  const y = rect.top * scale;
+  const panelWidth = rect.width * scale;
+  const panelHeight = rect.height * scale;
+  const panel = () => {
+    context.beginPath();
+    context.roundRect(x, y, panelWidth, panelHeight, 20 * scale);
+  };
+  context.save();
+  panel();
+  context.clip();
+  context.filter = `blur(${28 * scale}px) contrast(0.55) brightness(1.6) saturate(1.2)`;
+  paintSilk();
+  context.filter = "none";
+  context.fillStyle = "rgb(255 255 255 / 0.24)";
+  context.fillRect(x, y, panelWidth, panelHeight);
+  context.restore();
+  panel();
+  context.lineWidth = scale;
+  context.strokeStyle = "rgb(255 255 255 / 0.45)";
+  context.stroke();
+  return canvas;
+}
+
+/**
+ * One half of Sanctuary, mounted only while it splits open onto Command. Each
+ * half clips its own copy of the silk frame and the glass panel, so the view
+ * transition carries them apart down the middle.
  */
 function SanctuaryHalf({
   side,
@@ -238,40 +296,74 @@ function SanctuaryHalf({
     <div
       aria-hidden
       className={cn(
-        "absolute inset-y-0 w-1/2 overflow-hidden",
+        "absolute inset-y-0 w-1/2 overflow-hidden bg-[#3e356e]",
         side === "left" ? "argus-sanctuary-left left-0" : "argus-sanctuary-right right-0",
       )}
     >
-      <canvas ref={mirror} hidden className="absolute inset-0 size-full" />
+      <canvas ref={mirror} className="absolute inset-0 size-full" />
       <div className={cn("absolute inset-y-0 w-[200%]", side === "left" ? "left-0" : "right-0")}>
-        <div className="absolute inset-x-[max(1.5rem,calc((100%_-_72rem)/2))] top-[calc(var(--workspace-topbar-height)_+_1rem)] bottom-8 rounded-[20px] border border-white/8 bg-white/3 shadow-[0_4px_24px_rgb(0_0_0/0.15),inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-[20px] backdrop-saturate-[1.4]" />
+        <div className={cn(GLASS_FRAME, "argus-sanctuary-glass")} />
       </div>
     </div>
   );
 }
 
 /**
+ * Mounts the split halves only once a split transition begins, before the view
+ * transition captures the old state, and fills them with the current silk frame.
+ * At rest Sanctuary is one silk canvas under one glass panel.
+ */
+function useSanctuarySplit(silkFrame: RefObject<(() => HTMLCanvasElement) | null>) {
+  const [splitting, setSplitting] = useState(false);
+  const leftMirror = useRef<HTMLCanvasElement>(null);
+  const rightMirror = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => {
+      const next = root.dataset.argusModeTransition === "split";
+      flushSync(() => setSplitting(next));
+      const canvas = next ? silkFrame.current?.() : null;
+      if (canvas) mirrorSilk(canvas, leftMirror.current, rightMirror.current);
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["data-argus-mode-transition"] });
+    return () => observer.disconnect();
+  }, [silkFrame]);
+  return { splitting, leftMirror, rightMirror };
+}
+
+/**
  * Argus Sanctuary inside the app window, for desktop and unframed web. Its own
  * full-window space outside the command shell: no sidebar, no work chrome. The
- * root's mode pill floats above it. Silk behind a single glass panel, drawn as two
- * halves so it can split down the middle when leaving for Command; the Sanctuary
- * space sits on the glass.
+ * root's mode pill floats above it. Silk behind a single hazy glass panel; the
+ * Sanctuary space sits on the glass.
  */
 function SanctuaryRouteView() {
   const silkHost = useRef<HTMLDivElement>(null);
-  const leftMirror = useRef<HTMLCanvasElement>(null);
-  const rightMirror = useRef<HTMLCanvasElement>(null);
-  useSanctuarySilk(silkHost, leftMirror, rightMirror);
+  const glass = useRef<HTMLDivElement>(null);
+  const silkFrame = useSanctuarySilk(silkHost);
+  const { splitting, leftMirror, rightMirror } = useSanctuarySplit(silkFrame);
+  useEffect(
+    () =>
+      provideSanctuarySnapshot((width, height) =>
+        paintSanctuary(silkFrame.current?.() ?? null, glass.current, width, height),
+      ),
+    [silkFrame],
+  );
 
   return (
     <div
       {...{ [ARGUS_SANCTUARY_SPACE_ATTRIBUTE]: "" }}
-      className="relative h-dvh min-h-0 w-full overflow-hidden overscroll-y-none bg-[#3e356e] text-white isolate"
+      className="relative h-dvh min-h-0 w-full overflow-hidden overscroll-y-none bg-[#3e356e] text-ink isolate"
     >
       <div ref={silkHost} aria-hidden className="absolute inset-0" />
-      <SanctuaryHalf side="left" mirror={leftMirror} />
-      <SanctuaryHalf side="right" mirror={rightMirror} />
-      <main className="absolute inset-x-[max(1.5rem,calc((100%_-_72rem)/2))] top-[calc(var(--workspace-topbar-height)_+_1rem)] bottom-8 overflow-hidden rounded-[20px]">
+      <div ref={glass} aria-hidden className={cn(GLASS_FRAME, "argus-sanctuary-glass")} />
+      {splitting && (
+        <>
+          <SanctuaryHalf side="left" mirror={leftMirror} />
+          <SanctuaryHalf side="right" mirror={rightMirror} />
+        </>
+      )}
+      <main className={cn(GLASS_FRAME, "overflow-hidden")}>
         <SanctuarySpace />
       </main>
       <header

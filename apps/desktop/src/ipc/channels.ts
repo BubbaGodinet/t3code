@@ -122,3 +122,4 @@ export const SANCTUARY_SIMPLEFIN_CONNECT_CHANNEL = "sanctuary:simplefin-connect"
 export const SANCTUARY_SIMPLEFIN_DISCONNECT_CHANNEL = "sanctuary:simplefin-disconnect";
 export const SANCTUARY_SIMPLEFIN_ACCOUNTS_CHANNEL = "sanctuary:simplefin-accounts";
 export const SANCTUARY_AI_CHANNEL = "sanctuary:ai";
+export const SANCTUARY_CAPTURE_WINDOW_CHANNEL = "sanctuary:capture-window";

@@ -158,14 +158,14 @@ function VolumeList({
           onClick={() => onResume(savedPlace)}
           className={cn(
             glassTile,
-            "mb-8 flex w-full items-center justify-between px-5 py-4 text-left hover:bg-white/8",
+            "mb-8 flex w-full items-center justify-between px-5 py-4 text-left hover:bg-white/35",
           )}
         >
           <span>
-            <span className="block text-xs text-white/55">Continue reading</span>
-            <span className="mt-1 block text-base text-white">{chapterLabel(savedPlace, 0)}</span>
+            <span className="block text-xs text-ink/75">Continue reading</span>
+            <span className="mt-1 block text-base text-ink">{chapterLabel(savedPlace, 0)}</span>
           </span>
-          <ChevronRightIcon className="size-4 text-white/50" />
+          <ChevronRightIcon className="size-4 text-ink/75" />
         </button>
       ) : null}
       {groups.map((group) => (
@@ -177,7 +177,7 @@ function VolumeList({
                 key={volume.id}
                 type="button"
                 onClick={() => onVolume(volume.id)}
-                className={cn(glassTile, "px-5 py-4 text-left text-white hover:bg-white/8")}
+                className={cn(glassTile, "px-5 py-4 text-left text-ink hover:bg-white/35")}
               >
                 {volume.title}
               </button>
@@ -185,7 +185,7 @@ function VolumeList({
           </div>
         </div>
       ))}
-      <p className="mt-8 text-xs leading-5 text-white/40">
+      <p className="mt-8 text-xs leading-5 text-ink/60">
         Verse text from public-domain editions, kept on this device. Chapter headings, footnotes,
         and study helps are in Gospel Library.
       </p>
@@ -209,11 +209,11 @@ function BookList({
           onClick={() => onBook(name, chapters.length)}
           className={cn(
             glassTile,
-            "flex items-center justify-between px-4 py-3 text-left text-sm text-white hover:bg-white/8",
+            "flex items-center justify-between px-4 py-3 text-left text-sm text-ink hover:bg-white/35",
           )}
         >
           {name === "D&C" ? "Doctrine and Covenants" : name}
-          <span className="text-xs text-white/40">{chapters.length}</span>
+          <span className="text-xs text-ink/60">{chapters.length}</span>
         </button>
       ))}
     </div>
@@ -249,8 +249,8 @@ function ChapterGrid({
               className={cn(
                 "h-11 rounded-xl border text-sm transition-colors",
                 here
-                  ? "border-white/60 bg-white/15 text-white"
-                  : "border-white/10 text-white/80 hover:bg-white/10",
+                  ? "border-ink/40 bg-white/50 text-ink"
+                  : "border-ink/12 text-ink/90 hover:bg-white/35",
               )}
             >
               {chapter}
@@ -289,13 +289,13 @@ function ChapterReader({
   return (
     <article className="mx-auto max-w-2xl" ref={top}>
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h3 className="font-serif text-2xl text-white">{chapterLabel(place, book[1].length)}</h3>
+        <h3 className="font-serif text-2xl text-ink">{chapterLabel(place, book[1].length)}</h3>
         <SanctuaryButton onClick={() => openExternal(gospelLibraryUrl(place))}>
           Open in Gospel Library
           <ExternalLinkIcon className="size-3.5" />
         </SanctuaryButton>
       </header>
-      <div className="space-y-3 font-serif text-[1.05rem] leading-8 text-white/90">
+      <div className="space-y-3 font-serif text-[1.05rem] leading-8 text-ink/90">
         {verses.map((text, index) => {
           const verse = index + 1;
           const isHighlighted = place.verse === verse;
@@ -303,9 +303,9 @@ function ChapterReader({
             <p
               key={verse}
               ref={isHighlighted ? highlighted : undefined}
-              className={cn("rounded-lg px-2 -mx-2", isHighlighted && "bg-white/10")}
+              className={cn("rounded-lg px-2 -mx-2", isHighlighted && "bg-white/45")}
             >
-              <sup className="mr-1.5 font-sans text-[0.65rem] text-white/45">{verse}</sup>
+              <sup className="mr-1.5 font-sans text-[0.65rem] text-ink/75">{verse}</sup>
               {text}
             </p>
           );

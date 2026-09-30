@@ -32,6 +32,8 @@ export interface SanctuaryDesktopBridge {
   disconnectSimplefin(): Promise<void>;
   simplefinAccounts(): Promise<SimplefinAccountsResult>;
   ai(task: "food" | "ramble", text: string): Promise<unknown>;
+  /** A JPEG of this window's page, or null. Missing on desktop builds that predate it. */
+  captureWindow?(): Promise<Uint8Array<ArrayBuffer> | null>;
 }
 
 declare global {

@@ -100,21 +100,21 @@ export function SanctuaryMoney({ onBack }: { onBack: () => void }) {
     <SanctuaryDetail title="Money" onBack={onBack}>
       <div className="mx-auto max-w-3xl">
         <div className={cn(glassTile, "px-6 py-5")}>
-          <p className="text-xs text-white/55">Net worth</p>
-          <p className="mt-1 text-4xl font-medium text-white tabular-nums">
+          <p className="text-xs text-ink/75">Net worth</p>
+          <p className="mt-1 text-4xl font-medium text-ink tabular-nums">
             {formatMoney(worth.total)}
           </p>
-          <p className="mt-2 text-sm text-white/60 tabular-nums">
+          <p className="mt-2 text-sm text-ink/75 tabular-nums">
             {formatMoney(worth.assets)} assets · {formatMoney(worth.debts)} debts
           </p>
         </div>
-        <p className="mt-2 text-xs text-white/40">Read and understand. ARGUS never moves money.</p>
+        <p className="mt-2 text-xs text-ink/60">Read and understand. ARGUS never moves money.</p>
 
         <SectionTitle
           action={
             connected ? (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-white/45">{syncedLabel(money.syncedAt)}</span>
+                <span className="text-xs text-ink/75">{syncedLabel(money.syncedAt)}</span>
                 <SanctuaryButton onClick={() => void refresh()} disabled={busy} label="Refresh">
                   <RefreshCwIcon className={cn("size-3.5", busy && "opacity-50")} />
                 </SanctuaryButton>
@@ -133,18 +133,15 @@ export function SanctuaryMoney({ onBack }: { onBack: () => void }) {
               {busy ? "Syncing with SimpleFIN…" : "SimpleFIN returned no accounts yet."}
             </EmptyNote>
           ) : (
-            <ul className="divide-y divide-white/8">
+            <ul className="divide-y divide-ink/10">
               {money.linked.map((account) => (
                 <li key={account.id} className="flex items-center justify-between py-2.5 text-sm">
                   <span>
-                    <span className="block text-white">{account.name}</span>
-                    <span className="text-xs text-white/45">{account.org}</span>
+                    <span className="block text-ink">{account.name}</span>
+                    <span className="text-xs text-ink/75">{account.org}</span>
                   </span>
                   <span
-                    className={cn(
-                      "tabular-nums",
-                      account.balance < 0 ? "text-white/70" : "text-white",
-                    )}
+                    className={cn("tabular-nums", account.balance < 0 ? "text-ink/85" : "text-ink")}
                   >
                     {formatMoney(account.balance)}
                   </span>
@@ -154,7 +151,7 @@ export function SanctuaryMoney({ onBack }: { onBack: () => void }) {
           )
         ) : desktop ? (
           <form onSubmit={(event) => void connect(event)} className="space-y-3">
-            <p className="text-sm leading-6 text-white/65">
+            <p className="text-sm leading-6 text-ink/85">
               Connect banks and cards read-only through SimpleFIN Bridge. Create a setup token in
               your SimpleFIN account, then paste it here. ARGUS trades it for access once and keeps
               that encrypted on this Mac.
@@ -175,7 +172,7 @@ export function SanctuaryMoney({ onBack }: { onBack: () => void }) {
             <button
               type="button"
               onClick={() => openExternal("https://beta-bridge.simplefin.org/")}
-              className="text-xs text-white/50 underline-offset-4 hover:text-white hover:underline"
+              className="text-xs text-ink/75 underline-offset-4 hover:text-ink hover:underline"
             >
               Get a SimpleFIN setup token
             </button>
@@ -185,7 +182,7 @@ export function SanctuaryMoney({ onBack }: { onBack: () => void }) {
             SimpleFIN connects from the ARGUS desktop app. Manual accounts work here.
           </EmptyNote>
         )}
-        {notice ? <p className="mt-3 text-sm text-amber-100/85">{notice}</p> : null}
+        {notice ? <p className="mt-3 text-sm text-amber-800">{notice}</p> : null}
 
         <SectionTitle>Assets and debts you add</SectionTitle>
         <ManualAccounts />
@@ -219,11 +216,11 @@ function ManualAccounts() {
   return (
     <>
       {manual.length > 0 ? (
-        <ul className="mb-4 divide-y divide-white/8">
+        <ul className="mb-4 divide-y divide-ink/10">
           {manual.map((account) => (
             <li key={account.id} className="group flex items-center gap-3 py-2 text-sm">
-              <span className="flex-1 text-white">{account.name}</span>
-              <span className="text-xs text-white/45">
+              <span className="flex-1 text-ink">{account.name}</span>
+              <span className="text-xs text-ink/75">
                 {account.kind === "asset" ? "Asset" : "Debt"}
               </span>
               <input
@@ -240,7 +237,7 @@ function ManualAccounts() {
                     ),
                   )
                 }
-                className="h-8 w-32 rounded-md bg-transparent px-1.5 text-right text-white tabular-nums outline-none hover:bg-white/5 focus:bg-black/20"
+                className="h-8 w-32 rounded-md bg-transparent px-1.5 text-right text-ink tabular-nums outline-none hover:bg-white/35 focus:bg-white/50"
               />
               <button
                 type="button"
@@ -248,7 +245,7 @@ function ManualAccounts() {
                 onClick={() =>
                   setManual((accounts) => accounts.filter((entry) => entry.id !== account.id))
                 }
-                className="rounded p-1 text-white/30 hover:text-white"
+                className="rounded p-1 text-ink/60 hover:text-ink"
               >
                 <XIcon className="size-3.5" />
               </button>
@@ -256,7 +253,7 @@ function ManualAccounts() {
           ))}
         </ul>
       ) : (
-        <p className="mb-3 text-sm text-white/55">
+        <p className="mb-3 text-sm text-ink/75">
           Add what SimpleFIN cannot see: your home, a car, an Apple Card balance, a loan.
         </p>
       )}

@@ -1,5 +1,7 @@
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Electron from "electron";
 
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as Sanctuary from "../../sanctuary/SanctuaryDesktop.ts";
@@ -66,4 +68,27 @@ export const runSanctuaryAi = DesktopIpc.makeIpcMethod({
   payload: Schema.Struct({ task: Schema.Literals(["food", "ramble"]), text: Schema.String }),
   result: Schema.Unknown,
   handler: ({ task, text }) => Sanctuary.runSanctuaryAi(task, text),
+});
+
+/** `capturePage` never settles when the compositor is wedged; the melt then falls back. */
+const CAPTURE_WINDOW_TIMEOUT = "1 second";
+
+/**
+ * A JPEG of the calling window's page, for the Command → Sanctuary melt to
+ * distort. Null when it cannot be captured.
+ */
+export const captureSanctuaryWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SANCTUARY_CAPTURE_WINDOW_CHANNEL,
+  payload: Schema.Void,
+  result: Schema.Unknown,
+  handler: (_input, event) => {
+    const contents = event ? Electron.webContents.fromId(event.sender.id) : undefined;
+    if (!contents || contents.isDestroyed()) return Effect.succeed(null);
+    return Effect.tryPromise((_signal) => contents.capturePage()).pipe(
+      Effect.map((image) => (image.isEmpty() ? null : image.toJPEG(90))),
+      Effect.timeoutOption(CAPTURE_WINDOW_TIMEOUT),
+      Effect.map(Option.getOrNull),
+      Effect.orElseSucceed(() => null),
+    );
+  },
 });

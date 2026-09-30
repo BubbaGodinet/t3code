@@ -5,10 +5,10 @@ import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 
 export const glassTile =
-  "rounded-2xl border border-white/10 bg-white/[0.045] shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]";
+  "rounded-2xl border border-white/45 bg-white/24 shadow-[0_2px_12px_rgb(0_0_0/0.08),inset_0_1px_0_rgb(255_255_255/0.55)]";
 
 export const fieldClass =
-  "rounded-lg border border-white/12 bg-black/20 px-3 py-2 text-sm text-white placeholder:text-white/35 outline-none transition-colors focus:border-white/35";
+  "rounded-lg border border-ink/12 bg-white/40 px-3 py-2 text-sm text-ink placeholder:text-ink/60 outline-none transition-colors focus:border-ink/35";
 
 export function SanctuaryButton({
   children,
@@ -36,9 +36,9 @@ export function SanctuaryButton({
       onClick={onClick}
       className={cn(
         "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        tone === "solid" && "bg-white text-[#2b2450] hover:bg-white/90",
-        tone === "quiet" && "border border-white/12 text-white/85 hover:bg-white/10",
-        tone === "danger" && "text-white/50 hover:bg-white/10 hover:text-white",
+        tone === "solid" && "bg-ink text-white hover:bg-ink/90",
+        tone === "quiet" && "border border-ink/12 text-ink/90 hover:bg-white/35",
+        tone === "danger" && "text-ink/75 hover:bg-white/35 hover:text-ink",
         className,
       )}
     >
@@ -50,14 +50,14 @@ export function SanctuaryButton({
 export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="mb-3 mt-8 flex items-center justify-between first:mt-0">
-      <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-white/55">{children}</h3>
+      <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-ink/75">{children}</h3>
       {action}
     </div>
   );
 }
 
 export function EmptyNote({ children }: { children: ReactNode }) {
-  return <p className="py-6 text-center text-sm text-white/50">{children}</p>;
+  return <p className="py-6 text-center text-sm text-ink/75">{children}</p>;
 }
 
 /** A card opened into the glass: back to the cards, a title, then the view. */
@@ -78,12 +78,12 @@ export function SanctuaryDetail({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-ink/85 transition-colors hover:bg-white/35 hover:text-ink"
         >
           <ArrowLeftIcon className="size-4" />
           Sanctuary
         </button>
-        <h2 className="text-lg font-medium text-white">{title}</h2>
+        <h2 className="text-lg font-medium text-ink">{title}</h2>
         <div className="ml-auto flex items-center gap-2">{actions}</div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">{children}</div>

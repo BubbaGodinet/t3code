@@ -1,6 +1,7 @@
 import type { ArgusMode } from "./argusCommandCenter";
+import { playArgusMelt } from "./argusMelt";
 
-/** Command melts away onto Sanctuary; Sanctuary splits down the middle onto Command. */
+/** Command melts into Sanctuary; Sanctuary splits down the middle onto Command. */
 export type ArgusModeTransition = "melt" | "split";
 
 /** How long the pill's selection slides before the space changes. Matches the knob's CSS. */
@@ -46,17 +47,20 @@ function argusSpaceCommitted(target: ArgusMode): Promise<void> {
 }
 
 /**
- * Runs the mode change inside a one-shot view transition. `index.css` keys the
- * melt or split off `data-argus-mode-transition` on the root element. Reduced
- * motion, or no View Transitions support, switches instantly.
+ * Runs the mode change. With a Command snapshot, the melt is the WebGL shader
+ * in `argusMelt.ts`. Otherwise the change runs inside a one-shot view
+ * transition, and `index.css` keys the melt or split off
+ * `data-argus-mode-transition` on the root element, which is set for either
+ * path. Reduced motion, or no View Transitions support, switches instantly.
  */
 export async function runArgusModeTransition(
   transition: ArgusModeTransition,
   target: ArgusMode,
   update: () => void | Promise<void>,
+  commandSnapshot?: Promise<HTMLCanvasElement | null>,
 ): Promise<void> {
   const transitionDocument = document as ArgusViewTransitionDocument;
-  if (prefersReducedMotion() || !transitionDocument.startViewTransition) {
+  if (prefersReducedMotion()) {
     await update();
     return;
   }
@@ -68,6 +72,25 @@ export async function runArgusModeTransition(
     await update();
   };
   const root = transitionDocument.documentElement;
+
+  const command = transition === "melt" ? await commandSnapshot : null;
+  if (command) {
+    root.dataset.argusModeTransition = transition;
+    try {
+      const melted = await playArgusMelt(command, runUpdate, () => argusSpaceCommitted(target));
+      if (melted) return;
+    } catch {
+      await runUpdate();
+      return;
+    } finally {
+      delete root.dataset.argusModeTransition;
+    }
+  }
+
+  if (!transitionDocument.startViewTransition) {
+    await runUpdate();
+    return;
+  }
   root.dataset.argusModeTransition = transition;
   try {
     const viewTransition = transitionDocument.startViewTransition(async () => {
