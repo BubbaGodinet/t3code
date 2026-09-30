@@ -220,6 +220,40 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         expect(result.truncated).toBe(false);
       }),
     );
+
+    it.effect("lists markdown in dot directories and skips dependency trees", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-markdown-" });
+        yield* writeTextFile(cwd, ".notes/foo.md", "# foo\n");
+        yield* writeTextFile(cwd, "src/.notes/idea.md", "# idea\n");
+        yield* writeTextFile(cwd, "docs/guide.md", "# guide\n");
+        yield* writeTextFile(cwd, "node_modules/pkg/README.md", "# pkg\n");
+        yield* writeTextFile(cwd, "dist/README.md", "# dist\n");
+        yield* writeTextFile(cwd, "build/out.md", "# build\n");
+        yield* writeTextFile(cwd, ".git/COMMIT_EDITMSG.md", "# git\n");
+        yield* writeTextFile(cwd, "src/index.ts", "export {};\n");
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const indexed = yield* workspaceEntries.list({ cwd });
+        expect(indexed.entries.some((entry) => entry.path.includes(".notes"))).toBe(false);
+
+        const result = yield* workspaceEntries.list({ cwd, markdown: true });
+        const paths = result.entries.map((entry) => entry.path);
+
+        expect(paths).toContain(".notes/foo.md");
+        expect(paths).toContain("src/.notes/idea.md");
+        expect(paths).toContain("docs/guide.md");
+        expect(paths).not.toContain("node_modules/pkg/README.md");
+        expect(paths).not.toContain("dist/README.md");
+        expect(paths).not.toContain("build/out.md");
+        expect(paths).not.toContain(".git/COMMIT_EDITMSG.md");
+        expect(paths).not.toContain("src/index.ts");
+        expect(
+          result.entries.find((entry) => entry.path === ".notes/foo.md")?.mtimeMs,
+        ).toBeGreaterThan(0);
+        expect(result.truncated).toBe(false);
+      }),
+    );
   });
 
   describe("search", () => {

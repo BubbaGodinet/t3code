@@ -29,7 +29,8 @@ export const ProjectEntry = Schema.Struct({
   path: TrimmedNonEmptyString,
   kind: ProjectEntryKind,
   ignored: Schema.optional(Schema.Boolean),
-  // Last modification in epoch milliseconds. Only the indexed recursive listing sets it, on files.
+  // Last modification in epoch milliseconds. Set on files by the indexed
+  // listing and the markdown docs walk.
   mtimeMs: Schema.optional(NonNegativeInt),
 });
 export type ProjectEntry = typeof ProjectEntry.Type;
@@ -73,11 +74,51 @@ export const ProjectSearchContentsResult = Schema.Struct({
 });
 export type ProjectSearchContentsResult = typeof ProjectSearchContentsResult.Type;
 
+/**
+ * Dependency, VCS, and build directories. Docs skips these trees so package
+ * READMEs stay out. Note folders such as `.notes` are not in this set.
+ * The workspace file index omits every dot-directory, so this list is only the
+ * trees the markdown walk itself refuses to enter.
+ */
+export const PROJECT_MARKDOWN_SKIP_DIRECTORIES: ReadonlySet<string> = new Set([
+  ".git",
+  ".hg",
+  ".svn",
+  ".next",
+  ".nuxt",
+  ".output",
+  ".turbo",
+  ".cache",
+  ".parcel-cache",
+  ".yarn",
+  ".pnpm",
+  ".pnpm-store",
+  ".venv",
+  ".repos",
+  ".vercel",
+  ".electron-runtime",
+  "node_modules",
+  "bower_components",
+  "vendor",
+  "dist",
+  "dist-electron",
+  "dist-exe",
+  "build",
+  "coverage",
+  "out",
+  "target",
+  "venv",
+  "__pycache__",
+]);
+
 export const ProjectListEntriesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   // Present for immediate filesystem children, including ignored entries; empty means root.
   // Omitted preserves the indexed recursive listing used by older clients.
   directoryPath: Schema.optional(TrimmedString),
+  // Project-wide markdown walk, including dot-directories the file index skips.
+  // Ignored when directoryPath is set, so directory listings stay unchanged.
+  markdown: Schema.optional(Schema.Boolean),
 });
 export type ProjectListEntriesInput = typeof ProjectListEntriesInput.Type;
 

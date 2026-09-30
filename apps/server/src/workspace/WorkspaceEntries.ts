@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFSP from "node:fs/promises";
+import * as NodePath from "node:path";
 
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -8,16 +9,17 @@ import * as Path from "effect/Path";
 import * as RcMap from "effect/RcMap";
 import * as Schema from "effect/Schema";
 
-import type {
-  FilesystemBrowseInput,
-  FilesystemBrowseResult,
-  ProjectEntry,
-  ProjectListEntriesInput,
-  ProjectListEntriesResult,
-  ProjectSearchContentsInput,
-  ProjectSearchContentsResult,
-  ProjectSearchEntriesInput,
-  ProjectSearchEntriesResult,
+import {
+  PROJECT_MARKDOWN_SKIP_DIRECTORIES,
+  type FilesystemBrowseInput,
+  type FilesystemBrowseResult,
+  type ProjectEntry,
+  type ProjectListEntriesInput,
+  type ProjectListEntriesResult,
+  type ProjectSearchContentsInput,
+  type ProjectSearchContentsResult,
+  type ProjectSearchEntriesInput,
+  type ProjectSearchEntriesResult,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/path";
@@ -105,6 +107,79 @@ export class WorkspaceEntries extends Context.Service<
     readonly refresh: (cwd: string) => Effect.Effect<void>;
   }
 >()("t3/workspace/WorkspaceEntries") {}
+
+const MARKDOWN_FILE = /\.(?:md|markdown)$/i;
+const MARKDOWN_LIST_LIMIT = 10_000;
+
+function isIgnorableDirectoryError(cause: unknown): boolean {
+  const code = (cause as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EACCES" || code === "EPERM" || code === "ENOENT" || code === "ENOTDIR";
+}
+
+/**
+ * Every markdown file under the project, including dot-directories such as
+ * `.notes`. The file index never enters those directories. Dependency and
+ * build trees are not walked.
+ */
+async function listProjectMarkdown(cwd: string): Promise<ProjectListEntriesResult> {
+  const root = await NodeFSP.realpath(cwd);
+  const entries: ProjectEntry[] = [];
+  const pending = [root];
+
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    if (directory === undefined) break;
+    const children = await NodeFSP.readdir(directory, { withFileTypes: true }).catch(
+      (cause: unknown) => {
+        if (isIgnorableDirectoryError(cause)) return [];
+        throw cause;
+      },
+    );
+
+    for (const child of children) {
+      if (child.isSymbolicLink()) continue;
+      const absolute = NodePath.join(directory, child.name);
+      if (child.isDirectory()) {
+        if (!PROJECT_MARKDOWN_SKIP_DIRECTORIES.has(child.name)) pending.push(absolute);
+        continue;
+      }
+      if (!child.isFile() || !MARKDOWN_FILE.test(child.name)) continue;
+
+      const relative = NodePath.relative(root, absolute);
+      if (
+        relative.length === 0 ||
+        relative === ".." ||
+        relative.startsWith(`..${NodePath.sep}`) ||
+        NodePath.isAbsolute(relative)
+      ) {
+        continue;
+      }
+
+      const fileStat = await NodeFSP.stat(absolute).catch((cause: unknown) => {
+        if (isIgnorableDirectoryError(cause)) return null;
+        throw cause;
+      });
+      if (!fileStat?.isFile()) continue;
+
+      entries.push({
+        path: relative.split(NodePath.sep).join("/"),
+        kind: "file",
+        mtimeMs: Math.max(0, Math.round(fileStat.mtimeMs)),
+      });
+    }
+  }
+
+  if (entries.length <= MARKDOWN_LIST_LIMIT) return { entries, truncated: false };
+  return {
+    entries: entries
+      .toSorted(
+        (left, right) =>
+          (right.mtimeMs ?? -1) - (left.mtimeMs ?? -1) || left.path.localeCompare(right.path),
+      )
+      .slice(0, MARKDOWN_LIST_LIMIT),
+    truncated: true,
+  };
+}
 
 const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(function* (
   input: FilesystemBrowseInput,
@@ -270,6 +345,20 @@ export const make = Effect.gen(function* () {
   const list: WorkspaceEntries["Service"]["list"] = Effect.fn("WorkspaceEntries.list")(
     function* (input) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+      // Docs asks for this. The indexed listing omits dot-directories, so
+      // `.notes` never shows up there. Directory listings are unchanged.
+      if (input.markdown === true && input.directoryPath === undefined) {
+        return yield* Effect.tryPromise({
+          try: () => listProjectMarkdown(normalizedCwd),
+          catch: (cause) =>
+            new WorkspaceEntriesReadDirectoryError({
+              cwd: normalizedCwd,
+              partialPath: "",
+              parentPath: normalizedCwd,
+              cause,
+            }),
+        });
+      }
       if (input.directoryPath !== undefined) {
         const directoryPath = input.directoryPath;
         const toError = (cause: unknown) =>

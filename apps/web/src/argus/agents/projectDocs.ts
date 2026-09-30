@@ -1,4 +1,4 @@
-import type { ProjectEntry } from "@t3tools/contracts";
+import { PROJECT_MARKDOWN_SKIP_DIRECTORIES, type ProjectEntry } from "@t3tools/contracts";
 
 export interface ProjectDoc {
   readonly path: string;
@@ -22,15 +22,15 @@ export function projectDocTitle(path: string): string {
 }
 
 /**
- * The project's markdown files, most recently modified first. Vendored and
- * tool folders (any dot-folder, node_modules) and ignored files stay out.
+ * The project's markdown files, most recently modified first. Dependency and
+ * build trees stay out; note folders such as `.notes` stay in.
  */
 export function selectProjectDocs(entries: ReadonlyArray<ProjectEntry>): ProjectDoc[] {
   const docs: ProjectDoc[] = [];
   for (const entry of entries) {
-    if (entry.kind !== "file" || entry.ignored || !MARKDOWN_FILE.test(entry.path)) continue;
+    if (entry.kind !== "file" || !MARKDOWN_FILE.test(entry.path)) continue;
     const folders = entry.path.split("/").slice(0, -1);
-    if (folders.some((folder) => folder.startsWith(".") || folder === "node_modules")) continue;
+    if (folders.some((folder) => PROJECT_MARKDOWN_SKIP_DIRECTORIES.has(folder))) continue;
     docs.push({
       path: entry.path,
       title: projectDocTitle(entry.path),

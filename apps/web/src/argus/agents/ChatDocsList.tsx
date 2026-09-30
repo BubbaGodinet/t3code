@@ -71,7 +71,7 @@ export const ChatDocsList = memo(function ChatDocsList({
   cwd: string;
   onDismiss: () => void;
 }) {
-  const entries = useProjectEntriesQuery(environmentId, cwd);
+  const entries = useProjectEntriesQuery(environmentId, cwd, undefined, { markdown: true });
   const docs = useMemo(() => selectProjectDocs(entries.data?.entries ?? []), [entries.data]);
   const [query, setQuery] = useState("");
   const shown = useMemo(() => filterProjectDocs(docs, query), [docs, query]);

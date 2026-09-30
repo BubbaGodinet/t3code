@@ -28,15 +28,28 @@ describe("selectProjectDocs", () => {
     ]);
   });
 
-  it("leaves out vendored, tool, and ignored files", () => {
+  it("keeps note folders, including gitignored ones, and skips dependency and build trees", () => {
     const docs = selectProjectDocs([
+      file(".notes/foo.md", 400),
+      file(".notes/nested/bar.md", 300),
+      file(".github/pull_request_template.md", 200),
       file(".repos/effect/README.md", 500),
-      file(".github/pull_request_template.md", 500),
       file("node_modules/pkg/README.md", 500),
-      file("notes/scratch.md", 500, true),
+      file("packages/ui/node_modules/left-pad/README.md", 500),
+      file("dist/README.md", 500),
+      file("build/README.md", 500),
+      file("apps/web/dist/CHANGELOG.md", 500),
+      file(".git/COMMIT_EDITMSG.md", 500),
+      file("notes/scratch.md", 100, true),
       file("CONTRIBUTING.md", 1),
     ]);
-    expect(docs.map((doc) => doc.path)).toEqual(["CONTRIBUTING.md"]);
+    expect(docs.map((doc) => doc.path)).toEqual([
+      ".notes/foo.md",
+      ".notes/nested/bar.md",
+      ".github/pull_request_template.md",
+      "notes/scratch.md",
+      "CONTRIBUTING.md",
+    ]);
   });
 });
 
