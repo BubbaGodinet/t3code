@@ -9930,14 +9930,6 @@ export default function ChatView(props: ChatViewProps) {
             onDeleteProjectScript={deleteProjectScript}
           />
         </WorkspacePageHeader>
-        {chatAgents.length > 0 || keptChatOutputs.length > 0 ? (
-          <ChatAgentsBar
-            agents={chatAgents}
-            outputCount={keptChatOutputs.length}
-            view={chatSurfaceView}
-            onViewChange={onChatSurfaceViewChange}
-          />
-        ) : null}
 
         {/* Main content area with optional plan sidebar */}
         <div className="flex min-h-0 min-w-0 flex-1">
@@ -10120,6 +10112,17 @@ export default function ChatView(props: ChatViewProps) {
                 ref={attachDraftHeroTransitionGroupRef}
                 className="w-full ps-[calc(env(safe-area-inset-left)+0.75rem)] pe-[calc(env(safe-area-inset-right)+0.75rem)] sm:ps-[calc(env(safe-area-inset-left)+1.25rem)] sm:pe-[calc(env(safe-area-inset-right)+1.25rem)]"
               >
+                {/* In the measured overlay, so the timeline and scroll pill clear it. */}
+                {!isDraftHeroState && (chatAgents.length > 0 || keptChatOutputs.length > 0) ? (
+                  <div className="relative z-10 mx-auto w-full max-w-3xl">
+                    <ChatAgentsBar
+                      agents={chatAgents}
+                      outputCount={keptChatOutputs.length}
+                      view={chatSurfaceView}
+                      onViewChange={onChatSurfaceViewChange}
+                    />
+                  </div>
+                ) : null}
                 <div
                   data-chat-composer-stack="true"
                   className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-3xl"

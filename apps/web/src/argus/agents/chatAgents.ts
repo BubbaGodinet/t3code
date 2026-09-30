@@ -137,6 +137,22 @@ export function formatEditedFiles(files: ReadonlyArray<string>): string | null {
   return rest > 0 ? `Edited ${names} +${rest}` : `Edited ${names}`;
 }
 
+const OUTPUT_PREVIEW_CHARS = 280;
+
+/** A plain-text glimpse of an output's markdown for its row in the Outputs list. */
+export function outputPreviewText(text: string): string {
+  const plain = text
+    .replace(/```[\s\S]*?(```|$)/g, " ")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
+    .replace(/[*_`~]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain.length > OUTPUT_PREVIEW_CHARS
+    ? `${plain.slice(0, OUTPUT_PREVIEW_CHARS).trimEnd()}…`
+    : plain;
+}
+
 /**
  * Finished outputs derivable from what the client has loaded: every settled
  * turn's full answer and edited files, and every finished subagent's report.

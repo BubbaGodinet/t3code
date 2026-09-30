@@ -11,6 +11,7 @@ import {
   deriveChatOutputs,
   formatEditedFiles,
   mergeChatOutputs,
+  outputPreviewText,
 } from "./chatAgents";
 
 const turnOne = TurnId.make("turn-1");
@@ -199,5 +200,21 @@ describe("chat outputs", () => {
     expect(
       mergeChatOutputs(kept, reloaded).find((output) => output.id === "turn:turn-1"),
     ).toMatchObject({ outcome: "stopped", text: "Answer one" });
+  });
+});
+
+describe("outputPreviewText", () => {
+  it("reads markdown as plain prose and skips code", () => {
+    expect(
+      outputPreviewText(
+        "## Summary\n\n- Fixed **the** `parser`\n- See [docs](https://x.dev)\n\n```ts\nconst a = 1;\n```\nDone.",
+      ),
+    ).toBe("Summary Fixed the parser See docs Done.");
+  });
+
+  it("clips long answers", () => {
+    const preview = outputPreviewText("word ".repeat(200));
+    expect(preview.length).toBeLessThanOrEqual(281);
+    expect(preview.endsWith("…")).toBe(true);
   });
 });
