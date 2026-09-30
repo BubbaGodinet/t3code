@@ -135,49 +135,26 @@ html[data-argus-mode-transition="melt"]::view-transition-new(root) {
   backdrop-filter: blur(28px) contrast(0.55) brightness(1.6) saturate(1.2);
 }
 
-/* Sanctuary's two halves, mounted only for this, part down the middle onto
-   Command, which is already live behind them. */
-html[data-argus-mode-transition="split"] .argus-sanctuary-left {
-  view-transition-name: argus-sanctuary-left;
-  box-shadow: 12px 0 24px -16px rgb(0 0 0 / 0.45);
-}
-
-html[data-argus-mode-transition="split"] .argus-sanctuary-right {
-  view-transition-name: argus-sanctuary-right;
-  box-shadow: -12px 0 24px -16px rgb(0 0 0 / 0.45);
-}
-
-html[data-argus-mode-transition="split"]::view-transition-old(root) {
+/* Without a Sanctuary snapshot (the web), Command opens out of the center over
+   Sanctuary in a growing circle. With one, the reveal is the WebGL shader in
+   argusReveal.ts. */
+html[data-argus-mode-transition="reveal"]::view-transition-old(root) {
   animation: none;
-  opacity: 0;
+  mix-blend-mode: normal;
 }
 
-html[data-argus-mode-transition="split"]::view-transition-new(root) {
-  animation: none;
+html[data-argus-mode-transition="reveal"]::view-transition-new(root) {
+  z-index: 1;
+  animation: argus-command-reveal 700ms cubic-bezier(0.55, 0, 0.45, 1) both;
+  mix-blend-mode: normal;
 }
 
-html[data-argus-mode-transition="split"]::view-transition-group(argus-sanctuary-left),
-html[data-argus-mode-transition="split"]::view-transition-group(argus-sanctuary-right) {
-  z-index: 2;
-}
-
-html[data-argus-mode-transition="split"]::view-transition-old(argus-sanctuary-left) {
-  animation: argus-sanctuary-split-left 560ms cubic-bezier(0.65, 0, 0.35, 1) both;
-}
-
-html[data-argus-mode-transition="split"]::view-transition-old(argus-sanctuary-right) {
-  animation: argus-sanctuary-split-right 560ms cubic-bezier(0.65, 0, 0.35, 1) both;
-}
-
-@keyframes argus-sanctuary-split-left {
-  to {
-    transform: translateX(-100%);
+@keyframes argus-command-reveal {
+  from {
+    clip-path: circle(0% at 50% 50%);
   }
-}
-
-@keyframes argus-sanctuary-split-right {
   to {
-    transform: translateX(100%);
+    clip-path: circle(75% at 50% 50%);
   }
 }
 

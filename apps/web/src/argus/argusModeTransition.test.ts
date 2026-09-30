@@ -15,9 +15,9 @@ function stubWindow(reducedMotion: boolean) {
 }
 
 describe("argusModeTransition", () => {
-  it("melts Command into Sanctuary and splits Sanctuary open onto Command", () => {
+  it("melts Command into Sanctuary and reveals Command out of Sanctuary", () => {
     expect(argusModeTransition("command", "sanctuary")).toBe("melt");
-    expect(argusModeTransition("sanctuary", "command")).toBe("split");
+    expect(argusModeTransition("sanctuary", "command")).toBe("reveal");
   });
 
   it("does not animate staying in the same mode", () => {
@@ -32,13 +32,14 @@ describe("runArgusModeTransition", () => {
     const dataset: Record<string, string> = {};
     let finish: (() => void) | undefined;
     const finished = new Promise<void>((resolve) => (finish = resolve));
-    let updated: Promise<void> | undefined;
+    let updateDone: (() => void) | undefined;
+    const updated = new Promise<void>((resolve) => (updateDone = resolve));
     let seenDuringUpdate: string | undefined;
     vi.stubGlobal("document", {
       documentElement: { dataset },
       querySelector: () => ({}),
       startViewTransition: (update: () => Promise<void>) => {
-        updated = update();
+        void update().then(updateDone);
         return { finished };
       },
     });
@@ -62,7 +63,7 @@ describe("runArgusModeTransition", () => {
     vi.stubGlobal("document", { documentElement: { dataset }, startViewTransition });
     const update = vi.fn();
 
-    await runArgusModeTransition("split", "command", update);
+    await runArgusModeTransition("reveal", "command", update);
 
     expect(update).toHaveBeenCalledOnce();
     expect(startViewTransition).not.toHaveBeenCalled();
@@ -100,6 +101,31 @@ describe("runArgusModeTransition", () => {
     expect(update).toHaveBeenCalledOnce();
   });
 
+  it("names the transition while the knob slides, before the space changes", async () => {
+    const dataset: Record<string, string> = {};
+    let slide: (() => void) | undefined;
+    vi.stubGlobal("window", {
+      matchMedia: () => ({ matches: false }),
+      setTimeout: (resolve: () => void) => {
+        slide = resolve;
+        return 0;
+      },
+      clearTimeout,
+    });
+    vi.stubGlobal("document", { documentElement: { dataset } });
+    const update = vi.fn();
+
+    const run = runArgusModeTransition("reveal", "command", update, Promise.resolve(null), 200);
+    await Promise.resolve();
+    expect(dataset.argusModeTransition).toBe("reveal");
+    expect(update).not.toHaveBeenCalled();
+
+    slide?.();
+    await run;
+    expect(update).toHaveBeenCalledOnce();
+    expect(dataset.argusModeTransition).toBeUndefined();
+  });
+
   it("still switches when the view transition fails", async () => {
     stubWindow(false);
     const dataset: Record<string, string> = {};
@@ -111,7 +137,7 @@ describe("runArgusModeTransition", () => {
     });
     const update = vi.fn();
 
-    await runArgusModeTransition("split", "command", update);
+    await runArgusModeTransition("reveal", "command", update);
 
     expect(update).toHaveBeenCalledOnce();
     expect(dataset.argusModeTransition).toBeUndefined();

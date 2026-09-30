@@ -11,13 +11,13 @@ import {
   runArgusModeAction,
   useArgusMode,
 } from "./argusCommandCenter";
-import { captureArgusCommand } from "./argusMelt";
 import {
   ARGUS_PILL_SLIDE_MS,
   argusModeTransition,
   prefersReducedMotion,
   runArgusModeTransition,
 } from "./argusModeTransition";
+import { captureArgusWindow } from "./argusWindowShader";
 
 /**
  * The Command / Sanctuary pill, fixed at the top center of the window in both
@@ -38,7 +38,7 @@ export function ArgusModePillHost() {
  * Command is the pane grid; Sanctuary is the framing Argus window's page, or
  * the in-app Sanctuary space when nothing frames T3. Picking a side slides the
  * knob first, then the space changes: Command melts into Sanctuary, Sanctuary
- * splits open onto Command.
+ * is eaten away to reveal Command.
  */
 function ArgusModeSwitcher({ current, className }: { current: ArgusMode; className?: string }) {
   const currentHref = useLocation({ select: (location) => location.href });
@@ -62,27 +62,25 @@ function ArgusModeSwitcher({ current, className }: { current: ArgusMode; classNa
       return;
     }
     switching.current = true;
-    // Snapshot Command while the knob slides, so the melt starts as the knob lands.
-    const commandSnapshot = transition === "melt" ? captureArgusCommand() : undefined;
-    window.setTimeout(() => {
-      void runArgusModeTransition(
-        transition,
-        tab.mode,
-        async () => {
-          let navigation: Promise<void> | undefined;
-          runArgusModeAction(tab.action, {
-            currentHref,
-            navigate: (href) => {
-              navigation = navigate({ href });
-            },
-          });
-          await navigation;
-        },
-        commandSnapshot,
-      ).finally(() => {
-        switching.current = false;
-      });
-    }, ARGUS_PILL_SLIDE_MS);
+    // Snapshot the space being left while the knob slides, so the shader starts as the knob lands.
+    void runArgusModeTransition(
+      transition,
+      tab.mode,
+      async () => {
+        let navigation: Promise<void> | undefined;
+        runArgusModeAction(tab.action, {
+          currentHref,
+          navigate: (href) => {
+            navigation = navigate({ href });
+          },
+        });
+        await navigation;
+      },
+      captureArgusWindow(),
+      ARGUS_PILL_SLIDE_MS,
+    ).finally(() => {
+      switching.current = false;
+    });
   };
 
   // Over Sanctuary's silk the pill takes the silk's glass: dark tint, blur, a white knob.

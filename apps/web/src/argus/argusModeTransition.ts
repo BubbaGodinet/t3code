@@ -1,8 +1,9 @@
 import type { ArgusMode } from "./argusCommandCenter";
 import { playArgusMelt } from "./argusMelt";
+import { playArgusReveal } from "./argusReveal";
 
-/** Command melts into Sanctuary; Sanctuary splits down the middle onto Command. */
-export type ArgusModeTransition = "melt" | "split";
+/** Command melts into Sanctuary; Sanctuary is eaten away to reveal Command. */
+export type ArgusModeTransition = "melt" | "reveal";
 
 /** How long the pill's selection slides before the space changes. Matches the knob's CSS. */
 export const ARGUS_PILL_SLIDE_MS = 200;
@@ -17,7 +18,7 @@ type ArgusViewTransitionDocument = Document & {
 
 export function argusModeTransition(from: ArgusMode, to: ArgusMode): ArgusModeTransition | null {
   if (from === to) return null;
-  return to === "sanctuary" ? "melt" : "split";
+  return to === "sanctuary" ? "melt" : "reveal";
 }
 
 export function prefersReducedMotion(): boolean {
@@ -47,17 +48,20 @@ function argusSpaceCommitted(target: ArgusMode): Promise<void> {
 }
 
 /**
- * Runs the mode change. With a Command snapshot, the melt is the WebGL shader
- * in `argusMelt.ts`. Otherwise the change runs inside a one-shot view
- * transition, and `index.css` keys the melt or split off
- * `data-argus-mode-transition` on the root element, which is set for either
- * path. Reduced motion, or no View Transitions support, switches instantly.
+ * Runs the mode change, after the pill's knob has slid for `slideMs`. With a
+ * snapshot of the space being left, the transition is a WebGL shader: the melt
+ * in `argusMelt.ts` or the reveal in `argusReveal.ts`. Otherwise the change
+ * runs inside a one-shot view transition that `index.css` animates. Either way
+ * `data-argus-mode-transition` names the transition on the root element from
+ * the moment it is picked, which also holds Sanctuary's silk still. Reduced
+ * motion switches instantly; no View Transitions support switches after the slide.
  */
 export async function runArgusModeTransition(
   transition: ArgusModeTransition,
   target: ArgusMode,
   update: () => void | Promise<void>,
-  commandSnapshot?: Promise<HTMLCanvasElement | null>,
+  snapshot?: Promise<HTMLCanvasElement | null>,
+  slideMs = 0,
 ): Promise<void> {
   const transitionDocument = document as ArgusViewTransitionDocument;
   if (prefersReducedMotion()) {
@@ -71,39 +75,41 @@ export async function runArgusModeTransition(
     updateStarted = true;
     await update();
   };
+  const committed = () => argusSpaceCommitted(target);
   const root = transitionDocument.documentElement;
-
-  const command = transition === "melt" ? await commandSnapshot : null;
-  if (command) {
-    root.dataset.argusModeTransition = transition;
-    try {
-      const melted = await playArgusMelt(command, runUpdate, () => argusSpaceCommitted(target));
-      if (melted) return;
-    } catch {
-      await runUpdate();
-      return;
-    } finally {
-      delete root.dataset.argusModeTransition;
-    }
-  }
-
-  if (!transitionDocument.startViewTransition) {
-    await runUpdate();
-    return;
-  }
   root.dataset.argusModeTransition = transition;
   try {
-    const viewTransition = transitionDocument.startViewTransition(async () => {
+    const [image] = await Promise.all([
+      snapshot,
+      slideMs > 0 && new Promise((resolve) => window.setTimeout(resolve, slideMs)),
+    ]);
+    if (image) {
+      try {
+        const play = transition === "melt" ? playArgusMelt : playArgusReveal;
+        if (await play(image, runUpdate, committed)) return;
+      } catch {
+        await runUpdate();
+        return;
+      }
+    }
+
+    if (!transitionDocument.startViewTransition) {
       await runUpdate();
-      await argusSpaceCommitted(target);
-    });
+      return;
+    }
     try {
-      await viewTransition.finished;
+      const viewTransition = transitionDocument.startViewTransition(async () => {
+        await runUpdate();
+        await committed();
+      });
+      try {
+        await viewTransition.finished;
+      } catch {
+        await runUpdate();
+      }
     } catch {
       await runUpdate();
     }
-  } catch {
-    await runUpdate();
   } finally {
     delete root.dataset.argusModeTransition;
   }

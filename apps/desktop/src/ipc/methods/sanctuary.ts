@@ -70,12 +70,12 @@ export const runSanctuaryAi = DesktopIpc.makeIpcMethod({
   handler: ({ task, text }) => Sanctuary.runSanctuaryAi(task, text),
 });
 
-/** `capturePage` never settles when the compositor is wedged; the melt then falls back. */
+/** `capturePage` never settles when the compositor is wedged; the transition then falls back. */
 const CAPTURE_WINDOW_TIMEOUT = "1 second";
 
 /**
- * A JPEG of the calling window's page, for the Command → Sanctuary melt to
- * distort. Null when it cannot be captured.
+ * A JPEG of the calling window's page, for the Command ↔ Sanctuary shader
+ * transitions to distort. Null when it cannot be captured.
  */
 export const captureSanctuaryWindow = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.SANCTUARY_CAPTURE_WINDOW_CHANNEL,
