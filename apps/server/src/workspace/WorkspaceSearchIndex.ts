@@ -152,6 +152,13 @@ function toProjectEntry(item: MixedItem): ProjectEntry | null {
   };
 }
 
+/** A listed entry; files carry their modification time. */
+function toListedProjectEntry(item: MixedItem): ProjectEntry | null {
+  const entry = toProjectEntry(item);
+  if (!entry || item.type !== "file" || !(item.item.modified > 0)) return entry;
+  return { ...entry, mtimeMs: Math.round(item.item.modified * 1000) };
+}
+
 function toFileEntry(item: FileItem): ProjectEntry | null {
   const normalizedPath = trimDirectorySeparator(toPosixPath(item.relativePath));
   return normalizedPath ? { path: normalizedPath, kind: "file" } : null;
@@ -195,10 +202,11 @@ function mapDirectorySearchResult(
 function mapMixedSearchResult(
   result: MixedSearchResult,
   limit: number,
+  toEntry: (item: MixedItem) => ProjectEntry | null = toProjectEntry,
 ): { readonly entries: ProjectEntry[]; readonly truncated: boolean } {
   const entries: ProjectEntry[] = [];
   for (const item of result.items) {
-    const entry = toProjectEntry(item);
+    const entry = toEntry(item);
     if (entry) {
       entries.push(entry);
     }
@@ -439,7 +447,11 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
       const result = yield* runSearch("", WORKSPACE_INDEX_PAGE_SIZE, "mixedSearch", () =>
         finder.mixedSearch("", { pageSize: WORKSPACE_INDEX_PAGE_SIZE }),
       );
-      const mapped = mapMixedSearchResult(result, WORKSPACE_INDEX_MAX_ENTRIES);
+      const mapped = mapMixedSearchResult(
+        result,
+        WORKSPACE_INDEX_MAX_ENTRIES,
+        toListedProjectEntry,
+      );
       const sortedEntries = withDirectoryAncestors(mapped.entries).toSorted((left, right) =>
         left.path.localeCompare(right.path),
       );

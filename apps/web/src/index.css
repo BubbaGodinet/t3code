@@ -2278,3 +2278,95 @@ code {
 .composer-tiptap li[data-checked] > div > p {
   margin: 0;
 }
+
+/* The Argus focus modal (an output or a doc) is an opaque light sheet with
+   near-black type in every theme. The contrast tokens are resolved on the
+   root, so they are restated here rather than derived from --foreground. */
+.argus-focus-doc {
+  --background: #ffffff;
+  --popover: #ffffff;
+  --card: #ffffff;
+  --muted: #f4f4f5;
+  --secondary: #f4f4f5;
+  --accent: #f4f4f5;
+  --code-background: #f4f4f5;
+  --code-foreground: #18181b;
+  --info-foreground: #1d4ed8;
+  --contrast-foreground: #0a0a0a;
+  --contrast-popover-foreground: #0a0a0a;
+  --contrast-card-foreground: #0a0a0a;
+  --contrast-accent-foreground: #0a0a0a;
+  --contrast-secondary-foreground: #18181b;
+  --contrast-muted-foreground: #3f3f46;
+  --contrast-border: #d4d4d8;
+  --contrast-input: #e4e4e7;
+  color-scheme: light;
+  background: #ffffff;
+  color: #0a0a0a;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.argus-focus-doc .chat-markdown {
+  color: #0a0a0a;
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+
+.argus-focus-doc .chat-markdown h1,
+.argus-focus-doc .chat-markdown h2,
+.argus-focus-doc .chat-markdown h3,
+.argus-focus-doc .chat-markdown h4,
+.argus-focus-doc .chat-markdown h5,
+.argus-focus-doc .chat-markdown h6 {
+  color: #000000;
+  font-weight: 650;
+}
+
+.argus-focus-doc .chat-markdown h1 {
+  font-size: 1.5rem;
+}
+
+.argus-focus-doc .chat-markdown h2 {
+  font-size: 1.25rem;
+}
+
+.argus-focus-doc .chat-markdown h3 {
+  font-size: 1.0625rem;
+}
+
+.argus-focus-doc .chat-markdown h4,
+.argus-focus-doc .chat-markdown h5,
+.argus-focus-doc .chat-markdown h6 {
+  font-size: 0.9375rem;
+}
+
+.argus-focus-doc .chat-markdown li::marker {
+  color: #3f3f46;
+}
+
+.argus-focus-doc .chat-markdown blockquote {
+  border-left-color: #a1a1aa;
+  color: #27272a;
+}
+
+.argus-focus-doc .chat-markdown :not(pre) > code {
+  background: #f4f4f5;
+  color: #18181b;
+  font-size: 0.8125rem;
+}
+
+.argus-focus-doc .chat-markdown pre,
+.argus-focus-doc .chat-markdown .chat-markdown-codeblock {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.argus-focus-doc .chat-markdown .chat-markdown-codeblock pre {
+  background: transparent;
+}
+
+/* A dark app theme highlights with light token colors; darken them on the light sheet. */
+.dark .argus-focus-doc .chat-markdown-shiki span {
+  color: #18181b !important;
+}

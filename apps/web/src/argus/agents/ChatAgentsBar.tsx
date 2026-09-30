@@ -1,7 +1,7 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 
 import ChatMarkdown from "../../components/ChatMarkdown";
 import { composerFloatingLayerProps } from "../../components/chat/composerEventScope";
@@ -23,7 +23,7 @@ import {
   type ChatOutput,
 } from "./chatAgents";
 
-export type ChatSurfaceView = "transcript" | "outputs";
+export type ChatSurfaceView = "transcript" | "outputs" | "docs";
 
 const STATE_LABEL: Record<ChatAgentState, string> = {
   working: "Working",
@@ -73,18 +73,21 @@ function AgentLine({ agent }: { agent: ChatAgentStatus }) {
 const COMPACT_AGENT_LIMIT = 2;
 
 /**
- * The chat's agents, working ones marked live, with a switch between the
- * transcript and the kept outputs. Floats in the composer overlay just above
- * the composer, so the timeline reserves room for it and scrolls beneath it.
+ * The chat's agents, working ones marked live, and the Transcript / Outputs /
+ * Docs chips. Floats in the composer overlay just above the composer, so the
+ * timeline reserves room for it and scrolls beneath it. Choosing the open
+ * list's chip again returns to the transcript.
  */
 export const ChatAgentsBar = memo(function ChatAgentsBar({
   agents,
   outputCount,
+  docsAvailable,
   view,
   onViewChange,
 }: {
   agents: ReadonlyArray<ChatAgentStatus>;
   outputCount: number;
+  docsAvailable: boolean;
   view: ChatSurfaceView;
   onViewChange: (view: ChatSurfaceView) => void;
 }) {
@@ -92,6 +95,9 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
   const workingCount = agents.filter((agent) => agent.state === "working").length;
   const shown = listOpen ? agents : agents.slice(0, COMPACT_AGENT_LIMIT);
   const hiddenCount = agents.length - shown.length;
+  const options: ReadonlyArray<ChatSurfaceView> = docsAvailable
+    ? ["transcript", "outputs", "docs"]
+    : ["transcript", "outputs"];
   return (
     <div
       data-chat-agents-bar
@@ -130,7 +136,7 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
         aria-label="Chat view"
         className="surface-glass pointer-events-auto ms-auto flex h-7 shrink-0 items-center rounded-lg border border-border/60 p-0.5 shadow-sm"
       >
-        {(["transcript", "outputs"] as const).map((option) => (
+        {options.map((option) => (
           <button
             key={option}
             type="button"
@@ -142,17 +148,137 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
-            onClick={() => onViewChange(option)}
+            onClick={() => onViewChange(option === view ? "transcript" : option)}
           >
             {option === "transcript"
               ? "Transcript"
-              : `Outputs${outputCount > 0 ? ` ${outputCount}` : ""}`}
+              : option === "docs"
+                ? "Docs"
+                : `Outputs${outputCount > 0 ? ` ${outputCount}` : ""}`}
           </button>
         ))}
       </div>
     </div>
   );
 });
+
+/** Focus that belongs to a menu, dialog, or the composer keeps its own Escape. */
+function escapeBelongsElsewhere(): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof Element) || active.closest("[data-argus-focus-doc]")) return false;
+  return (
+    active.closest(
+      '[data-chat-composer-form="true"], [role="dialog"], [role="menu"], [role="listbox"]',
+    ) !== null
+  );
+}
+
+/**
+ * The Outputs or Docs list, floating over the transcript just above the chips.
+ * The transcript stays mounted and full width beneath it. Escape, a press
+ * anywhere outside the list and the chips, or closing an entry's focus modal
+ * returns to the transcript.
+ */
+export function ChatSurfacePanel({
+  label,
+  bottomInset,
+  onDismiss,
+  children,
+}: {
+  label: string;
+  /** Distance from the bottom of the timeline to the top of the chips. */
+  bottomInset: number;
+  onDismiss: () => void;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || isContextMenuOpen()) return;
+      if (escapeBelongsElsewhere()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onDismiss();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const panel = panelRef.current;
+      const target = event.target;
+      if (!panel || !(target instanceof Element) || panel.contains(target)) return;
+      if (target.closest("[data-argus-focus-doc]")) return;
+      const chatColumn = panel.closest('[data-chat-workspace-drop-target="true"]');
+      const chips = target.closest("[data-chat-agents-bar]");
+      if (chips && chatColumn?.contains(chips)) return;
+      onDismiss();
+    };
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    document.addEventListener("pointerdown", onPointerDown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+      document.removeEventListener("pointerdown", onPointerDown, { capture: true });
+    };
+  }, [onDismiss]);
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col justify-end ps-[calc(env(safe-area-inset-left)+0.75rem)] pe-[calc(env(safe-area-inset-right)+0.75rem)] pt-3 sm:ps-[calc(env(safe-area-inset-left)+1.25rem)] sm:pe-[calc(env(safe-area-inset-right)+1.25rem)]"
+      style={{ bottom: bottomInset }}
+    >
+      <section
+        ref={panelRef}
+        aria-label={label}
+        className="pointer-events-auto mx-auto flex max-h-[min(100%,36rem)] min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border/70 bg-popover text-popover-foreground shadow-lg"
+      >
+        {children}
+      </section>
+    </div>
+  );
+}
+
+/** One output or doc in full: a light, high-contrast sheet over a darkened, blurred window. */
+export function ChatFocusDialog({
+  label,
+  meta,
+  onClose,
+  children,
+}: {
+  label: string;
+  meta: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogPopup
+        {...composerFloatingLayerProps}
+        data-argus-focus-doc=""
+        bottomStickOnMobile={false}
+        backdropClassName="z-[60] bg-black/60! backdrop-blur-md!"
+        viewportClassName="z-[60] px-4 py-6"
+        className="argus-focus-doc max-h-[88vh] max-w-4xl"
+      >
+        <DialogHeader className="gap-1 pe-12 pb-3">
+          <DialogTitle className="sr-only">{label}</DialogTitle>
+          <div className="flex min-w-0 items-center gap-1.5 text-xs">{meta}</div>
+        </DialogHeader>
+        <DialogPanel className="flex flex-col gap-4 pt-0">{children}</DialogPanel>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+export function ChatSurfaceHeader({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-3 py-2 text-xs">
+      <span className="font-medium text-foreground">{title}</span>
+      {children}
+    </div>
+  );
+}
 
 const OUTCOME_STATE: Record<ChatOutput["outcome"], ChatAgentState> = {
   done: "done",
@@ -180,9 +306,7 @@ function OutputFiles({
             {file.path}
           </button>
           {file.additions !== null ? (
-            <span className="shrink-0 text-emerald-600 dark:text-emerald-400">
-              +{file.additions}
-            </span>
+            <span className="shrink-0 text-emerald-700">+{file.additions}</span>
           ) : null}
           {file.deletions !== null ? (
             <span className="shrink-0 text-destructive">-{file.deletions}</span>
@@ -213,146 +337,88 @@ function OutputMeta({
   );
 }
 
-/** One finished output in full, over a darkened and blurred window. */
-function ChatOutputDialog({
-  output,
-  cwd,
-  threadRef,
-  timestampFormat,
-  onOpenFile,
-  onClose,
-}: {
-  output: ChatOutput;
-  cwd: string | undefined;
-  threadRef: ScopedThreadRef | undefined;
-  timestampFormat: TimestampFormat;
-  onOpenFile: (output: ChatOutput, path: string) => void;
-  onClose: () => void;
-}) {
-  // Claims Escape before the chat's own shortcuts can read it.
-  useEffect(() => {
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || isContextMenuOpen()) return;
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-    };
-    window.addEventListener("keydown", onEscape, { capture: true });
-    return () => window.removeEventListener("keydown", onEscape, { capture: true });
-  }, [onClose]);
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogPopup
-        {...composerFloatingLayerProps}
-        bottomStickOnMobile={false}
-        backdropClassName="z-[60] bg-black/50! backdrop-blur-md!"
-        viewportClassName="z-[60] px-4 py-6"
-        className="max-h-[88vh] max-w-4xl"
-      >
-        <DialogHeader className="gap-1 pe-12 pb-3">
-          <DialogTitle className="sr-only">{output.title} output</DialogTitle>
-          <div className="flex min-w-0 items-center gap-1.5 text-xs">
-            <OutputMeta output={output} timestampFormat={timestampFormat} />
-          </div>
-        </DialogHeader>
-        <DialogPanel className="flex flex-col gap-4 pt-0">
-          {output.text ? <ChatMarkdown text={output.text} cwd={cwd} threadRef={threadRef} /> : null}
-          {output.files.length > 0 ? (
-            <div className="flex flex-col gap-1.5 border-t pt-3">
-              <span className="text-xs font-medium text-muted-foreground">
-                {output.files.length === 1
-                  ? "1 file edited"
-                  : `${output.files.length} files edited`}
-              </span>
-              <OutputFiles
-                output={output}
-                onOpenFile={(target, path) => {
-                  onClose();
-                  onOpenFile(target, path);
-                }}
-              />
-            </div>
-          ) : null}
-        </DialogPanel>
-      </DialogPopup>
-    </Dialog>
-  );
-}
-
-/** Every finished output of the chat, newest first; an entry opens in full. */
-export const ChatOutputsView = memo(function ChatOutputsView({
+/** Every finished output of the chat, newest first; an entry opens in the focus modal. */
+export const ChatOutputsList = memo(function ChatOutputsList({
   outputs,
   cwd,
   threadRef,
   timestampFormat,
-  bottomInset,
   onOpenFile,
+  onDismiss,
 }: {
   outputs: ReadonlyArray<ChatOutput>;
   cwd: string | undefined;
   threadRef: ScopedThreadRef | undefined;
   timestampFormat: TimestampFormat;
-  /** Height of the composer docked over the bottom of the chat. */
-  bottomInset: number;
   onOpenFile: (output: ChatOutput, path: string) => void;
+  onDismiss: () => void;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const focused = focusedId === null ? null : outputs.find((output) => output.id === focusedId);
-  const closeFocused = useCallback(() => setFocusedId(null), []);
-  if (outputs.length === 0) {
-    return (
-      <div
-        className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground"
-        style={{ paddingBottom: bottomInset }}
-      >
-        Finished agent outputs collect here.
-      </div>
-    );
-  }
   return (
-    <div
-      className="flex h-full flex-col gap-2 overflow-y-auto p-4"
-      style={{ paddingBottom: bottomInset + 16 }}
-    >
-      {outputs.map((output) => {
-        const preview = outputPreviewText(output.text);
-        const edited = formatEditedFiles(output.files.map((file) => file.path));
-        return (
-          <button
-            key={output.id}
-            type="button"
-            aria-haspopup="dialog"
-            className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-1.5 rounded-lg border bg-card p-3 text-left hover:border-foreground/20 hover:bg-accent/40"
-            onClick={() => setFocusedId(output.id)}
-          >
-            <span className="flex w-full min-w-0 items-center gap-1.5 text-xs">
-              <OutputMeta output={output} timestampFormat={timestampFormat} />
-            </span>
-            {preview ? (
-              <span className="line-clamp-3 text-sm text-foreground/85">{preview}</span>
-            ) : null}
-            {edited ? (
-              <span className="truncate text-xs text-muted-foreground">{edited}</span>
-            ) : null}
-          </button>
-        );
-      })}
+    <>
+      <ChatSurfaceHeader title="Outputs">
+        <span className="text-muted-foreground">{outputs.length}</span>
+      </ChatSurfaceHeader>
+      {outputs.length === 0 ? (
+        <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+          Finished agent outputs collect here.
+        </p>
+      ) : (
+        <ul className="min-h-0 flex-1 divide-y divide-border/60 overflow-y-auto">
+          {outputs.map((output) => {
+            const preview = outputPreviewText(output.text);
+            const edited = formatEditedFiles(output.files.map((file) => file.path));
+            return (
+              <li key={output.id}>
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  className="flex w-full min-w-0 flex-col gap-1 px-3 py-2.5 text-left hover:bg-accent/60"
+                  onClick={() => setFocusedId(output.id)}
+                >
+                  <span className="flex w-full min-w-0 items-center gap-1.5 text-xs">
+                    <OutputMeta output={output} timestampFormat={timestampFormat} />
+                  </span>
+                  {preview ? (
+                    <span className="line-clamp-2 text-sm text-foreground">{preview}</span>
+                  ) : null}
+                  {edited ? (
+                    <span className="truncate text-xs text-muted-foreground">{edited}</span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {focused ? (
-        <ChatOutputDialog
-          output={focused}
-          cwd={cwd}
-          threadRef={threadRef}
-          timestampFormat={timestampFormat}
-          onOpenFile={onOpenFile}
-          onClose={closeFocused}
-        />
+        <ChatFocusDialog
+          label={`${focused.title} output`}
+          meta={<OutputMeta output={focused} timestampFormat={timestampFormat} />}
+          onClose={onDismiss}
+        >
+          {focused.text ? (
+            <ChatMarkdown text={focused.text} cwd={cwd} threadRef={threadRef} />
+          ) : null}
+          {focused.files.length > 0 ? (
+            <div className="flex flex-col gap-1.5 border-t pt-3">
+              <span className="text-xs font-medium text-muted-foreground">
+                {focused.files.length === 1
+                  ? "1 file edited"
+                  : `${focused.files.length} files edited`}
+              </span>
+              <OutputFiles
+                output={focused}
+                onOpenFile={(target, path) => {
+                  onDismiss();
+                  onOpenFile(target, path);
+                }}
+              />
+            </div>
+          ) : null}
+        </ChatFocusDialog>
       ) : null}
-    </div>
+    </>
   );
 });

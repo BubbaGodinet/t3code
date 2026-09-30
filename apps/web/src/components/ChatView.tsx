@@ -487,9 +487,11 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
 import {
   ChatAgentsBar,
-  ChatOutputsView,
+  ChatOutputsList,
+  ChatSurfacePanel,
   type ChatSurfaceView,
 } from "../argus/agents/ChatAgentsBar";
+import { ChatDocsList } from "../argus/agents/ChatDocsList";
 import { deriveChatAgents, deriveChatOutputs, type ChatOutput } from "../argus/agents/chatAgents";
 import { useChatOutputsStore } from "../argus/agents/chatOutputsStore";
 import { useChatPane } from "../argus/mosaic/chatPaneContext";
@@ -9567,15 +9569,27 @@ export default function ChatView(props: ChatViewProps) {
     useChatOutputsStore((state) =>
       activeThreadKey ? state.byThread[activeThreadKey]?.outputs : undefined,
     ) ?? EMPTY_CHAT_OUTPUTS;
-  const [outputsViewThreadKey, setOutputsViewThreadKey] = useState<string | null>(null);
+  // Never persisted and tied to one chat, so a reload or a chat switch always opens the transcript.
+  const [chatSurfaceChoice, setChatSurfaceChoice] = useState<{
+    readonly threadKey: string;
+    readonly view: Exclude<ChatSurfaceView, "transcript">;
+  } | null>(null);
   const chatSurfaceView: ChatSurfaceView =
-    outputsViewThreadKey !== null && outputsViewThreadKey === activeThreadKey
-      ? "outputs"
+    chatSurfaceChoice !== null && chatSurfaceChoice.threadKey === activeThreadKey
+      ? chatSurfaceChoice.view
       : "transcript";
   const onChatSurfaceViewChange = useCallback(
-    (view: ChatSurfaceView) => setOutputsViewThreadKey(view === "outputs" ? activeThreadKey : null),
+    (view: ChatSurfaceView) =>
+      setChatSurfaceChoice(
+        view === "transcript" || activeThreadKey === null
+          ? null
+          : { threadKey: activeThreadKey, view },
+      ),
     [activeThreadKey],
   );
+  const closeChatSurface = useCallback(() => setChatSurfaceChoice(null), []);
+  const docsEnvironmentId = activeThread?.environmentId ?? environmentId;
+  const docsCwd = activeWorkspaceRoot;
   const onOpenOutputFile = useCallback(
     (output: ChatOutput, path: string) => {
       if (output.turnId) onOpenTurnDiff(output.turnId, path);
@@ -10059,18 +10073,34 @@ export default function ChatView(props: ChatViewProps) {
                 )}
                 onRemoveQueuedMessage={onRemoveQueuedMessage}
               />
-              {/* Covers the transcript without unmounting it, so its scroll position survives. */}
               {chatSurfaceView === "outputs" ? (
-                <div className="absolute inset-0 z-10 bg-background">
-                  <ChatOutputsView
+                <ChatSurfacePanel
+                  label="Outputs"
+                  bottomInset={composerTimelineInset}
+                  onDismiss={closeChatSurface}
+                >
+                  <ChatOutputsList
                     outputs={keptChatOutputs}
                     cwd={gitCwd ?? undefined}
                     threadRef={activeThreadRef ?? undefined}
                     timestampFormat={timestampFormat}
-                    bottomInset={composerTimelineInset}
                     onOpenFile={onOpenOutputFile}
+                    onDismiss={closeChatSurface}
                   />
-                </div>
+                </ChatSurfacePanel>
+              ) : chatSurfaceView === "docs" && docsCwd ? (
+                <ChatSurfacePanel
+                  label="Docs"
+                  bottomInset={composerTimelineInset}
+                  onDismiss={closeChatSurface}
+                >
+                  <ChatDocsList
+                    environmentId={docsEnvironmentId}
+                    cwd={docsCwd}
+                    threadRef={activeThreadRef ?? undefined}
+                    onDismiss={closeChatSurface}
+                  />
+                </ChatSurfacePanel>
               ) : null}
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
@@ -10113,11 +10143,13 @@ export default function ChatView(props: ChatViewProps) {
                 className="w-full ps-[calc(env(safe-area-inset-left)+0.75rem)] pe-[calc(env(safe-area-inset-right)+0.75rem)] sm:ps-[calc(env(safe-area-inset-left)+1.25rem)] sm:pe-[calc(env(safe-area-inset-right)+1.25rem)]"
               >
                 {/* In the measured overlay, so the timeline and scroll pill clear it. */}
-                {!isDraftHeroState && (chatAgents.length > 0 || keptChatOutputs.length > 0) ? (
+                {!isDraftHeroState &&
+                (chatAgents.length > 0 || keptChatOutputs.length > 0 || docsCwd) ? (
                   <div className="relative z-10 mx-auto w-full max-w-3xl">
                     <ChatAgentsBar
                       agents={chatAgents}
                       outputCount={keptChatOutputs.length}
+                      docsAvailable={docsCwd !== undefined}
                       view={chatSurfaceView}
                       onViewChange={onChatSurfaceViewChange}
                     />

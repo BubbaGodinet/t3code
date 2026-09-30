@@ -209,10 +209,13 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
             {
               path: "src/components/Composer.tsx",
               kind: "file",
+              mtimeMs: expect.any(Number),
             },
-            { path: "README.md", kind: "file" },
+            { path: "README.md", kind: "file", mtimeMs: expect.any(Number) },
           ]),
         );
+        const readme = result.entries.find((entry) => entry.path === "README.md");
+        expect(readme?.mtimeMs).toBeGreaterThan(0);
         expect(result.entries.some((entry) => entry.path.startsWith("node_modules"))).toBe(false);
         expect(result.truncated).toBe(false);
       }),

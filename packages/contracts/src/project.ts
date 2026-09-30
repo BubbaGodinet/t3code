@@ -29,6 +29,8 @@ export const ProjectEntry = Schema.Struct({
   path: TrimmedNonEmptyString,
   kind: ProjectEntryKind,
   ignored: Schema.optional(Schema.Boolean),
+  // Last modification in epoch milliseconds. Only the indexed recursive listing sets it, on files.
+  mtimeMs: Schema.optional(NonNegativeInt),
 });
 export type ProjectEntry = typeof ProjectEntry.Type;
 
