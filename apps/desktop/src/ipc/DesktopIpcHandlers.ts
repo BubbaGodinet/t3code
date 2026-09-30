@@ -69,6 +69,7 @@ import {
 } from "./methods/snapShot.ts";
 import * as PreviewIpc from "./methods/preview.ts";
 import * as AppActivationIpc from "./methods/appActivation.ts";
+import * as SanctuaryIpc from "./methods/sanctuary.ts";
 import { getWslState, setWslBackendEnabled, setWslDistro, setWslOnly } from "./methods/wsl.ts";
 
 export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
@@ -145,4 +146,12 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   }
   yield* ipc.handle(PreviewIpc.listBrowserImportSources);
   yield* ipc.handle(PreviewIpc.importBrowserCookies);
+  yield* ipc.handle(SanctuaryIpc.loadSanctuary);
+  yield* ipc.handle(SanctuaryIpc.saveSanctuary);
+  yield* ipc.handle(SanctuaryIpc.getSanctuaryCapabilities);
+  yield* ipc.handle(SanctuaryIpc.startSanctuaryDictation);
+  yield* ipc.handle(SanctuaryIpc.connectSanctuarySimplefin);
+  yield* ipc.handle(SanctuaryIpc.disconnectSanctuarySimplefin);
+  yield* ipc.handle(SanctuaryIpc.fetchSanctuarySimplefinAccounts);
+  yield* ipc.handle(SanctuaryIpc.runSanctuaryAi);
 });

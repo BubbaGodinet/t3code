@@ -390,6 +390,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
 } satisfies DesktopBridge);
 
+contextBridge.exposeInMainWorld("sanctuaryDesktop", {
+  load: () => ipcRenderer.invoke(IpcChannels.SANCTUARY_LOAD_CHANNEL),
+  save: (document: unknown) => ipcRenderer.invoke(IpcChannels.SANCTUARY_SAVE_CHANNEL, document),
+  capabilities: () => ipcRenderer.invoke(IpcChannels.SANCTUARY_CAPABILITIES_CHANNEL),
+  startDictation: () => ipcRenderer.invoke(IpcChannels.SANCTUARY_DICTATION_CHANNEL),
+  connectSimplefin: (setupToken: string) =>
+    ipcRenderer.invoke(IpcChannels.SANCTUARY_SIMPLEFIN_CONNECT_CHANNEL, setupToken),
+  disconnectSimplefin: () => ipcRenderer.invoke(IpcChannels.SANCTUARY_SIMPLEFIN_DISCONNECT_CHANNEL),
+  simplefinAccounts: () => ipcRenderer.invoke(IpcChannels.SANCTUARY_SIMPLEFIN_ACCOUNTS_CHANNEL),
+  ai: (task: "food" | "ramble", text: string) =>
+    ipcRenderer.invoke(IpcChannels.SANCTUARY_AI_CHANNEL, { task, text }),
+});
+
 contextBridge.exposeInMainWorld("argusDesktop", {
   openSurface: (target: unknown, placement: unknown) =>
     ipcRenderer.invoke("argus:open-surface", target, placement),
@@ -401,4 +414,3 @@ contextBridge.exposeInMainWorld("argusDesktop", {
   syncView: (view: unknown) => ipcRenderer.invoke("argus:sync-view", view),
   closeView: (id: unknown) => ipcRenderer.invoke("argus:close-view", id),
 });
-

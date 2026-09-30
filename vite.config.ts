@@ -83,6 +83,7 @@ export default defineConfig({
       "apps/mobile/ios/**",
       "apps/mobile/uniwind-types.d.ts",
       "*.icon/**",
+      "apps/web/public/sanctuary/**",
     ],
     sortPackageJson: {},
     overrides: [

@@ -113,3 +113,12 @@ export const PREVIEW_POINTER_EVENT_CHANNEL = "desktop:preview-pointer-event";
 export const MAC_PERMISSION_HELPER_CHANNEL = "desktop:mac-permission-helper";
 
 export const CHECK_SYSTEM_PERMISSION_CHANNEL = "desktop:check-system-permission";
+
+export const SANCTUARY_LOAD_CHANNEL = "sanctuary:load";
+export const SANCTUARY_SAVE_CHANNEL = "sanctuary:save";
+export const SANCTUARY_CAPABILITIES_CHANNEL = "sanctuary:capabilities";
+export const SANCTUARY_DICTATION_CHANNEL = "sanctuary:dictation";
+export const SANCTUARY_SIMPLEFIN_CONNECT_CHANNEL = "sanctuary:simplefin-connect";
+export const SANCTUARY_SIMPLEFIN_DISCONNECT_CHANNEL = "sanctuary:simplefin-disconnect";
+export const SANCTUARY_SIMPLEFIN_ACCOUNTS_CHANNEL = "sanctuary:simplefin-accounts";
+export const SANCTUARY_AI_CHANNEL = "sanctuary:ai";

@@ -4,6 +4,7 @@ import { type RefObject, useEffect, useRef } from "react";
 import { ARGUS_SANCTUARY_SPACE_ATTRIBUTE } from "../argus/argusModeTransition";
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
+import { SanctuarySpace } from "../sanctuary/SanctuarySpace";
 
 /** React Bits Silk at #3e356e: speed 5, scale 1, noise 1.5, rotation 0. */
 const SILK_COLOR = [0x3e / 255, 0x35 / 255, 0x6e / 255] as const;
@@ -252,8 +253,9 @@ function SanctuaryHalf({
 /**
  * Argus Sanctuary inside the app window, for desktop and unframed web. Its own
  * full-window space outside the command shell: no sidebar, no work chrome. The
- * root's mode pill floats above it. Silk behind a single blank glass panel, drawn
- * as two halves so it can split down the middle when leaving for Command.
+ * root's mode pill floats above it. Silk behind a single glass panel, drawn as two
+ * halves so it can split down the middle when leaving for Command; the Sanctuary
+ * space sits on the glass.
  */
 function SanctuaryRouteView() {
   const silkHost = useRef<HTMLDivElement>(null);
@@ -269,6 +271,9 @@ function SanctuaryRouteView() {
       <div ref={silkHost} aria-hidden className="absolute inset-0" />
       <SanctuaryHalf side="left" mirror={leftMirror} />
       <SanctuaryHalf side="right" mirror={rightMirror} />
+      <main className="absolute inset-x-[max(1.5rem,calc((100%_-_72rem)/2))] top-[calc(var(--workspace-topbar-height)_+_1rem)] bottom-8 overflow-hidden rounded-[20px]">
+        <SanctuarySpace />
+      </main>
       <header
         className={cn(
           "relative h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)]",
