@@ -1,7 +1,12 @@
 import type { ProjectEntry } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { filterProjectDocs, projectDocTitle, selectProjectDocs } from "./projectDocs";
+import {
+  filterProjectDocs,
+  projectDocFocusPath,
+  projectDocTitle,
+  selectProjectDocs,
+} from "./projectDocs";
 
 const file = (path: string, mtimeMs?: number, ignored?: boolean): ProjectEntry => ({
   path,
@@ -59,6 +64,34 @@ describe("projectDocTitle", () => {
     expect(projectDocTitle("docs/user_guide.md")).toBe("user guide");
     expect(projectDocTitle("docs/argus/README.md")).toBe("argus");
     expect(projectDocTitle("README.md")).toBe("README");
+  });
+});
+
+describe("projectDocFocusPath", () => {
+  it("routes project markdown, including note folders, to the docs modal", () => {
+    expect(projectDocFocusPath("OPEN-QUESTIONS.md")).toBe("OPEN-QUESTIONS.md");
+    expect(projectDocFocusPath("docs/OPEN-QUESTIONS.md")).toBe("docs/OPEN-QUESTIONS.md");
+    expect(projectDocFocusPath(".notes/foo.md")).toBe(".notes/foo.md");
+    expect(projectDocFocusPath(".notes/nested/bar.md")).toBe(".notes/nested/bar.md");
+    expect(projectDocFocusPath("docs/guide.markdown")).toBe("docs/guide.markdown");
+    expect(projectDocFocusPath("./docs/a.md")).toBe("docs/a.md");
+    expect(projectDocFocusPath("notes\\scratch.md")).toBe("notes/scratch.md");
+    expect(projectDocFocusPath("README.MD")).toBe("README.MD");
+  });
+
+  it("leaves other chips on their usual open", () => {
+    expect(projectDocFocusPath(null)).toBeNull();
+    expect(projectDocFocusPath(undefined)).toBeNull();
+    expect(projectDocFocusPath("")).toBeNull();
+    expect(projectDocFocusPath("src/index.ts")).toBeNull();
+    expect(projectDocFocusPath("node_modules/pkg/README.md")).toBeNull();
+    expect(projectDocFocusPath("packages/ui/node_modules/left-pad/README.md")).toBeNull();
+    expect(projectDocFocusPath("dist/README.md")).toBeNull();
+    expect(projectDocFocusPath(".git/COMMIT_EDITMSG.md")).toBeNull();
+    expect(projectDocFocusPath(".repos/effect/README.md")).toBeNull();
+    expect(projectDocFocusPath("/tmp/OPEN-QUESTIONS.md")).toBeNull();
+    expect(projectDocFocusPath("C:/docs/a.md")).toBeNull();
+    expect(projectDocFocusPath("../outside.md")).toBeNull();
   });
 });
 

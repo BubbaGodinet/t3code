@@ -18,12 +18,15 @@ import {
   type MosaicSurfaceSource,
 } from "./mosaicSurfaces";
 import {
+  arrangementOf,
+  buildArrangementTree,
   buildPresetTree,
   collectPaneIds,
   insertPaneBeside,
   movePane,
   removePane,
   resizeSplit,
+  type MosaicArrangement,
   type MosaicDirection,
   type MosaicDropZone,
   type MosaicNode,
@@ -105,6 +108,8 @@ interface MosaicStoreState extends MosaicLayoutSnapshot {
   setEnabled: (enabled: boolean) => void;
   setActiveConfig: (configId: string | null) => void;
   applyPreset: (preset: MosaicPreset) => void;
+  /** Rearranges the panes already in the grid. Pane contents stay put. */
+  applyArrangement: (arrangement: MosaicArrangement) => void;
   addPane: (
     kind: "chat" | "terminal",
     options?: { beside?: string | null; direction?: MosaicDirection; companyId?: string | null },
@@ -252,6 +257,12 @@ export const useMosaicStore = create<MosaicStoreState>()(
             root: buildPresetTree(preset, ids, randomUUID),
             activePaneId: state.activePaneId ?? ids[0] ?? null,
           };
+        }),
+      applyArrangement: (arrangement) =>
+        set((state) => {
+          const ids = collectPaneIds(state.root);
+          if (ids.length === 0 || arrangementOf(state.root) === arrangement) return state;
+          return { root: buildArrangementTree(arrangement, ids, randomUUID) };
         }),
       addPane: (kind, options) => {
         const state = get();

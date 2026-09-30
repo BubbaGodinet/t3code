@@ -2,14 +2,12 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { SearchIcon } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 
-import {
-  useProjectEntriesQuery,
-  useProjectFileQuery,
-} from "../../components/files/projectFilesQueryState";
+import { useProjectEntriesQuery } from "../../components/files/projectFilesQueryState";
 import { cn } from "../../lib/utils";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
-import { ChatFocusDialog, ChatSurfaceHeader } from "./ChatAgentsBar";
-import { FocusMarkdown, SCAN_TITLE_CLASS } from "./FocusMarkdown";
+import { ChatSurfaceHeader } from "./ChatAgentsBar";
+import { SCAN_TITLE_CLASS } from "./FocusMarkdown";
+import { ProjectDocFocus } from "./ProjectDocFocus";
 import { filterProjectDocs, selectProjectDocs, type ProjectDoc } from "./projectDocs";
 
 function modifiedLabel(doc: ProjectDoc): string | null {
@@ -27,34 +25,14 @@ function ChatDocDialog({
   doc: ProjectDoc;
   onClose: () => void;
 }) {
-  const file = useProjectFileQuery(environmentId, cwd, doc.path);
-  const modified = modifiedLabel(doc);
   return (
-    <ChatFocusDialog
-      title={doc.title}
-      meta={
-        <>
-          <span className="min-w-0 truncate font-mono">{doc.path}</span>
-          {modified ? <span className="ms-auto shrink-0">Edited {modified}</span> : null}
-        </>
-      }
+    <ProjectDocFocus
+      environmentId={environmentId}
+      cwd={cwd}
+      path={doc.path}
+      mtimeMs={doc.mtimeMs}
       onClose={onClose}
-    >
-      {file.data ? (
-        <>
-          <FocusMarkdown text={file.data.contents} />
-          {file.data.truncated ? (
-            <p className="border-t pt-3 text-xs text-muted-foreground">
-              This doc is longer than the preview limit; the rest is not shown.
-            </p>
-          ) : null}
-        </>
-      ) : file.error ? (
-        <p className="text-sm text-destructive">{file.error}</p>
-      ) : (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
-    </ChatFocusDialog>
+    />
   );
 }
 

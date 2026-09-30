@@ -18,6 +18,21 @@ export type MosaicNode =
 
 export type MosaicPreset = "row" | "two-over-one" | "grid-2x2" | "three-over-two";
 
+/** One-button layout cycle: side by side, then stacked, then a square grid. */
+export type MosaicArrangement = "columns" | "rows" | "grid";
+
+export const ARRANGEMENT_CYCLE = [
+  "columns",
+  "rows",
+  "grid",
+] as const satisfies ReadonlyArray<MosaicArrangement>;
+
+export const ARRANGEMENT_LABEL: Record<MosaicArrangement, string> = {
+  columns: "Columns",
+  rows: "Rows",
+  grid: "Grid",
+};
+
 export interface MosaicRect {
   readonly x: number;
   readonly y: number;
@@ -102,6 +117,87 @@ export function buildPresetTree(
     ids.length === 1 ? paneLeaf(ids[0]!) : splitNode(newId(), "row", ids.map(paneLeaf)),
   );
   return rowNodes.length === 1 ? rowNodes[0]! : splitNode(newId(), "column", rowNodes);
+}
+
+/** The next step in the layout cycle. An unrecognized arrangement starts at columns. */
+export function nextArrangement(current: MosaicArrangement | null): MosaicArrangement {
+  if (current === null) return "columns";
+  const index = ARRANGEMENT_CYCLE.indexOf(current);
+  return ARRANGEMENT_CYCLE[(index + 1) % ARRANGEMENT_CYCLE.length]!;
+}
+
+/**
+ * Columns in a square-ish grid: 1 for a single pane, 2 for 2–4, then
+ * `ceil(sqrt(n))` so 5–9 use 3, 10–16 use 4, and so on.
+ */
+export function gridColumnCount(paneCount: number): number {
+  if (paneCount <= 1) return 1;
+  return Math.ceil(Math.sqrt(paneCount));
+}
+
+/**
+ * Lays the same pane ids into columns (one row), rows (one stack), or a grid.
+ * Order is kept and no pane is added or dropped.
+ */
+export function buildArrangementTree(
+  arrangement: MosaicArrangement,
+  paneIds: ReadonlyArray<string>,
+  newId: () => string,
+): MosaicNode | null {
+  if (paneIds.length === 0) return null;
+  if (paneIds.length === 1) return paneLeaf(paneIds[0]!);
+  if (arrangement === "columns") return splitNode(newId(), "row", paneIds.map(paneLeaf));
+  if (arrangement === "rows") return splitNode(newId(), "column", paneIds.map(paneLeaf));
+
+  const columns = gridColumnCount(paneIds.length);
+  const rows: MosaicNode[] = [];
+  for (let index = 0; index < paneIds.length; index += columns) {
+    const slice = paneIds.slice(index, index + columns);
+    rows.push(
+      slice.length === 1 ? paneLeaf(slice[0]!) : splitNode(newId(), "row", slice.map(paneLeaf)),
+    );
+  }
+  return rows.length === 1 ? rows[0]! : splitNode(newId(), "column", rows);
+}
+
+function isFlatPaneSplit(node: MosaicNode, direction: MosaicDirection, count: number): boolean {
+  return (
+    node.kind === "split" &&
+    node.direction === direction &&
+    node.children.length === count &&
+    node.children.every((child) => child.kind === "pane")
+  );
+}
+
+/** The cycle step this tree already is, or null when the user has a custom arrangement. */
+export function arrangementOf(root: MosaicNode | null): MosaicArrangement | null {
+  if (root === null) return null;
+  const count = collectPaneIds(root).length;
+  if (count === 0) return null;
+  if (count === 1) return root.kind === "pane" ? "columns" : null;
+  if (isFlatPaneSplit(root, "row", count)) return "columns";
+  if (isFlatPaneSplit(root, "column", count)) return "rows";
+  return matchesGrid(root, count) ? "grid" : null;
+}
+
+function matchesGrid(root: MosaicNode, count: number): boolean {
+  const columns = gridColumnCount(count);
+  const rowCount = Math.ceil(count / columns);
+  if (rowCount === 1) return isFlatPaneSplit(root, "row", count);
+  if (root.kind !== "split" || root.direction !== "column" || root.children.length !== rowCount) {
+    return false;
+  }
+  let remaining = count;
+  for (const child of root.children) {
+    const rowSize = Math.min(columns, remaining);
+    remaining -= rowSize;
+    if (rowSize === 1) {
+      if (child.kind !== "pane") return false;
+    } else if (!isFlatPaneSplit(child, "row", rowSize)) {
+      return false;
+    }
+  }
+  return remaining === 0;
 }
 
 /**

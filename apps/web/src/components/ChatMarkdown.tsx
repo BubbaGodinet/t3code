@@ -196,6 +196,8 @@ import {
 } from "../browser/openFileInPreview";
 import { resolveLinkTarget } from "../browser/browserLinkTarget";
 import { PullRequestLinkPreview } from "./pullRequest/PullRequestLinkPreview";
+import { ProjectDocFocus } from "../argus/agents/ProjectDocFocus";
+import { projectDocFocusPath } from "../argus/agents/projectDocs";
 
 interface ChatMarkdownProps {
   text: string;
@@ -1153,6 +1155,8 @@ interface MarkdownFileLinkProps {
   /** Platform-specific menu label ("Reveal in Finder", ...); required for the
       reveal item to show. */
   revealLabel?: string | undefined;
+  /** Opens a project markdown file in the Docs focus modal. */
+  onOpenProjectDoc?: (() => void) | undefined;
   className?: string | undefined;
 }
 
@@ -1892,6 +1896,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   onOpenMedia,
   onReveal,
   revealLabel,
+  onOpenProjectDoc,
   className,
 }: MarkdownFileLinkProps) {
   const handleOpenInEditor = useCallback(() => {
@@ -2144,12 +2149,14 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   const canOpenInEditor = onOpen !== undefined;
   const canOpenInBrowser = onOpenInBrowser !== undefined;
   const canOpenInPanel = threadRef !== undefined && Boolean(panelPath);
-  const hasPrimaryAction = hasMarkdownFilePrimaryAction({
-    canOpenInEditor,
-    canOpenInBrowser,
-    canOpenInPanel,
-    canOpenMedia: onOpenMedia !== undefined,
-  });
+  const hasPrimaryAction =
+    onOpenProjectDoc !== undefined ||
+    hasMarkdownFilePrimaryAction({
+      canOpenInEditor,
+      canOpenInBrowser,
+      canOpenInPanel,
+      canOpenMedia: onOpenMedia !== undefined,
+    });
   const useBrowserPrimaryAction = shouldUseMarkdownFileBrowserPrimaryAction({
     iconPath,
     canOpenInEditor,
@@ -2175,6 +2182,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
                 event.stopPropagation();
                 if (onOpen && shouldOpenMarkdownFileLinkInEditor(event)) {
                   handleOpenInEditor();
+                  return;
+                }
+                if (onOpenProjectDoc) {
+                  onOpenProjectDoc();
                   return;
                 }
                 if (useBrowserPrimaryAction) {
@@ -2243,6 +2254,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.onOpenMedia === next.onOpenMedia &&
     previous.onReveal === next.onReveal &&
     previous.revealLabel === next.revealLabel &&
+    previous.onOpenProjectDoc === next.onOpenProjectDoc &&
     previous.className === next.className
   );
 }
@@ -2265,11 +2277,13 @@ function useChatMarkdownState({
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const [localMediaPreview, setLocalMediaPreview] = useState<ExpandedImagePreview | null>(null);
+  const [focusedDocPath, setFocusedDocPath] = useState<string | null>(null);
   const markdownRef = useRef<HTMLDivElement>(null);
   const expandMedia = onImageExpand ?? setLocalMediaPreview;
   const mediaRequestId = useRef(0);
   useEffect(() => {
     setLocalMediaPreview(null);
+    setFocusedDocPath(null);
     return () => {
       mediaRequestId.current += 1;
     };
@@ -2570,6 +2584,32 @@ function useChatMarkdownState({
     },
     [cwd, findWorkspaceBasenameMatch, revealFileInFileManager],
   );
+  const openProjectDoc = useCallback(
+    (fileLinkMeta: MarkdownFileLinkMeta) => {
+      const direct = projectDocFocusPath(fileLinkMeta.workspaceRelativePath);
+      if (!direct || environmentId === null || !cwd) return;
+      const show = (path: string) => {
+        const docPath = projectDocFocusPath(path);
+        if (docPath) {
+          setFocusedDocPath(docPath);
+          return;
+        }
+        openFileInPanel(path, fileLinkMeta.line);
+      };
+      if (!needsWorkspaceBasenameLookup(direct)) {
+        show(direct);
+        return;
+      }
+      const isLatest = claimWorkspaceBasenameLookup();
+      void (async () => {
+        const match = await findWorkspaceBasenameMatch(direct);
+        if (!isLatest()) return;
+        show(match ?? direct);
+      })();
+    },
+    [cwd, environmentId, findWorkspaceBasenameMatch, openFileInPanel],
+  );
+  const closeFocusedDoc = useCallback(() => setFocusedDocPath(null), []);
   const fileLinkChip = useCallback(
     (
       fileLinkMeta: MarkdownFileLinkMeta,
@@ -2614,6 +2654,11 @@ function useChatMarkdownState({
           threadRef={threadRef}
           {...(canUseShellActions ? { onOpen: openInPreferredEditor } : {})}
           onOpenInPanel={openFileInPanel}
+          onOpenProjectDoc={
+            environmentId !== null && cwd && projectDocFocusPath(fileLinkMeta.workspaceRelativePath)
+              ? () => openProjectDoc(fileLinkMeta)
+              : undefined
+          }
           onOpenMedia={
             threadRef && canPreviewMedia
               ? () => openMarkdownMedia(mediaPath, fileLinkMeta.filePath)
@@ -2639,8 +2684,11 @@ function useChatMarkdownState({
     },
     [
       canUseShellActions,
+      cwd,
+      environmentId,
       fileLinkParentSuffixByPath,
       openFileInPanel,
+      openProjectDoc,
       openInPreferredEditor,
       openMarkdownFileInPreview,
       openMarkdownMedia,
@@ -2721,6 +2769,8 @@ function useChatMarkdownState({
     markdownUrlTransform,
     localMediaPreview,
     setLocalMediaPreview,
+    focusedDocPath,
+    closeFocusedDoc,
   };
 }
 
@@ -3311,6 +3361,8 @@ function ChatMarkdown({
     markdownUrlTransform,
     localMediaPreview,
     setLocalMediaPreview,
+    focusedDocPath,
+    closeFocusedDoc,
   } = useChatMarkdownState({ text, ...props });
   const incrementalParsing =
     props.isStreaming === true &&
@@ -3354,6 +3406,14 @@ function ChatMarkdown({
         <ExpandedImageDialog
           preview={localMediaPreview}
           onClose={() => setLocalMediaPreview(null)}
+        />
+      ) : null}
+      {focusedDocPath && componentState.environmentId && componentState.cwd ? (
+        <ProjectDocFocus
+          environmentId={componentState.environmentId}
+          cwd={componentState.cwd}
+          path={focusedDocPath}
+          onClose={closeFocusedDoc}
         />
       ) : null}
     </div>

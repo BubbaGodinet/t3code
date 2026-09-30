@@ -296,73 +296,77 @@ export const MosaicPaneView = memo(function MosaicPaneView({
       style={frameStyle}
     >
       <div
-        className="flex h-7 shrink-0 items-center gap-1.5 border-b px-1.5"
+        className="grid h-7 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b"
         style={
           color ? { backgroundColor: tint(color, 14), borderColor: tint(color, 35) } : undefined
         }
       >
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden px-1.5">
+          <CompanyMenu pane={pane} company={company} />
+          <span className="text-muted-foreground/60">/</span>
+          {KindIcon ? <KindIcon className="size-3.5 shrink-0 text-muted-foreground" /> : null}
+          <button
+            type="button"
+            className="min-w-0 flex-1 truncate text-left text-xs"
+            onClick={() => focusPane(pane.id)}
+          >
+            {title}
+          </button>
+        </div>
         <button
           type="button"
           aria-label={floating ? "Drag to move" : "Drag onto another pane to swap"}
-          className="flex h-5 shrink-0 cursor-grab touch-none items-center rounded text-muted-foreground hover:bg-accent active:cursor-grabbing"
+          className="flex h-5 cursor-grab touch-none items-center rounded px-1.5 text-muted-foreground hover:bg-accent active:cursor-grabbing"
           onPointerDown={(event) => onStartDrag(pane.id, event)}
         >
           <GripVerticalIcon className="size-3.5" />
         </button>
-        <CompanyMenu pane={pane} company={company} />
-        <span className="text-muted-foreground/60">/</span>
-        {KindIcon ? <KindIcon className="size-3.5 shrink-0 text-muted-foreground" /> : null}
-        <button
-          type="button"
-          className="min-w-0 flex-1 truncate text-left text-xs"
-          onClick={() => focusPane(pane.id)}
-        >
-          {title}
-        </button>
-        {agent ? (
-          <span className="hidden shrink-0 truncate text-[11px] text-muted-foreground @[28rem]/pane:inline">
-            {agent}
-          </span>
-        ) : null}
-        <SurfaceLaunchMenus pane={pane} company={company} />
-        {pane.kind === "browser" || pane.kind === "device" ? (
-          <ShowInChatButton pane={pane} />
-        ) : null}
-        <Button
-          aria-label={floating ? "Dock pane" : "Pop out pane"}
-          title={floating ? "Dock back into the grid" : "Pop out to a floating pane"}
-          aria-pressed={floating}
-          size="icon-micro"
-          variant="ghost-muted"
-          className={cn(floating && "bg-accent text-foreground")}
-          onClick={() => onToggleFloat(pane.id)}
-        >
-          <PictureInPicture2Icon />
-        </Button>
-        <Button
-          aria-label="Split right"
-          size="icon-micro"
-          variant="ghost-muted"
-          onClick={() => addPane("chat", { beside: pane.id, direction: "row" })}
-        >
-          <Columns2Icon />
-        </Button>
-        <Button
-          aria-label="Split down"
-          size="icon-micro"
-          variant="ghost-muted"
-          onClick={() => addPane("chat", { beside: pane.id, direction: "column" })}
-        >
-          <Rows2Icon />
-        </Button>
-        <Button
-          aria-label="Close pane"
-          size="icon-micro"
-          variant="ghost-muted"
-          onClick={() => closePane(pane.id)}
-        >
-          <XIcon />
-        </Button>
+        <div className="flex min-w-0 items-center justify-end gap-1 overflow-hidden pe-1">
+          {agent ? (
+            <span className="hidden shrink-0 truncate text-[11px] text-muted-foreground @[28rem]/pane:inline">
+              {agent}
+            </span>
+          ) : null}
+          <SurfaceLaunchMenus pane={pane} company={company} />
+          {pane.kind === "browser" || pane.kind === "device" ? (
+            <ShowInChatButton pane={pane} />
+          ) : null}
+          <Button
+            aria-label={floating ? "Dock pane" : "Pop out pane"}
+            title={floating ? "Dock back into the grid" : "Pop out to a floating pane"}
+            aria-pressed={floating}
+            size="icon-micro"
+            variant="ghost-muted"
+            className={cn(floating && "bg-accent text-foreground")}
+            onClick={() => onToggleFloat(pane.id)}
+          >
+            <PictureInPicture2Icon />
+          </Button>
+          <Button
+            aria-label="Split right"
+            size="icon-micro"
+            variant="ghost-muted"
+            onClick={() => addPane("chat", { beside: pane.id, direction: "row" })}
+          >
+            <Columns2Icon />
+          </Button>
+          <Button
+            aria-label="Split down"
+            size="icon-micro"
+            variant="ghost-muted"
+            onClick={() => addPane("chat", { beside: pane.id, direction: "column" })}
+          >
+            <Rows2Icon />
+          </Button>
+          <Button
+            aria-label="Close pane"
+            size="icon-micro"
+            variant="ghost-muted"
+            onClick={() => closePane(pane.id)}
+          >
+            <XIcon />
+          </Button>
+        </div>
       </div>
       {/* Layout containment scopes ChatView's fixed-position header controls to this pane. */}
       <div

@@ -9,6 +9,32 @@ export interface ProjectDoc {
 const MARKDOWN_FILE = /\.(?:md|markdown)$/i;
 const INDEX_STEM = /^(?:readme|index)$/i;
 
+/**
+ * A workspace-relative markdown path Docs would list. Dependency and build
+ * trees stay out; note folders such as `.notes` stay in. Anything else keeps
+ * the chip's usual open (editor, side preview, or the files panel).
+ */
+export function projectDocFocusPath(
+  workspaceRelativePath: string | null | undefined,
+): string | null {
+  if (workspaceRelativePath == null) return null;
+  const path = workspaceRelativePath
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/^(?:\.\/)+/, "");
+  return isProjectDocPath(path) ? path : null;
+}
+
+function isProjectDocPath(path: string): boolean {
+  if (!path || path.startsWith("/") || /^[A-Za-z]:\//.test(path)) return false;
+  const segments = path.split("/");
+  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+    return false;
+  }
+  if (!MARKDOWN_FILE.test(path)) return false;
+  return !segments.slice(0, -1).some((folder) => PROJECT_MARKDOWN_SKIP_DIRECTORIES.has(folder));
+}
+
 function humanize(name: string): string {
   return name.replace(/[-_]+/g, " ").trim() || name;
 }
@@ -28,9 +54,7 @@ export function projectDocTitle(path: string): string {
 export function selectProjectDocs(entries: ReadonlyArray<ProjectEntry>): ProjectDoc[] {
   const docs: ProjectDoc[] = [];
   for (const entry of entries) {
-    if (entry.kind !== "file" || !MARKDOWN_FILE.test(entry.path)) continue;
-    const folders = entry.path.split("/").slice(0, -1);
-    if (folders.some((folder) => PROJECT_MARKDOWN_SKIP_DIRECTORIES.has(folder))) continue;
+    if (entry.kind !== "file" || !isProjectDocPath(entry.path)) continue;
     docs.push({
       path: entry.path,
       title: projectDocTitle(entry.path),

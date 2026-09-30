@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  arrangementOf,
+  buildArrangementTree,
   buildPresetTree,
   collectPaneIds,
   dropZoneAt,
+  gridColumnCount,
   insertPaneBeside,
   layoutMosaic,
   MIN_PANE_PERCENT,
   movePane,
+  nextArrangement,
   removePane,
   resizeSplit,
   swapPanes,
+  type MosaicArrangement,
   type MosaicNode,
 } from "./mosaicTree";
 
@@ -39,6 +44,57 @@ describe("buildPresetTree", () => {
   it("keeps extra panes in the last row instead of dropping them", () => {
     const tree = buildPresetTree("grid-2x2", ["a", "b", "c", "d", "e"], idFactory());
     expect(collectPaneIds(tree)).toEqual(["a", "b", "c", "d", "e"]);
+  });
+});
+
+describe("layout cycle", () => {
+  it("advances columns, rows, grid, then columns", () => {
+    expect(nextArrangement(null)).toBe("columns");
+    expect(nextArrangement("columns")).toBe("rows");
+    expect(nextArrangement("rows")).toBe("grid");
+    expect(nextArrangement("grid")).toBe("columns");
+  });
+
+  it("uses two columns for 2–4 panes and widens toward a square after that", () => {
+    expect(gridColumnCount(1)).toBe(1);
+    expect(gridColumnCount(2)).toBe(2);
+    expect(gridColumnCount(3)).toBe(2);
+    expect(gridColumnCount(4)).toBe(2);
+    expect(gridColumnCount(5)).toBe(3);
+    expect(gridColumnCount(9)).toBe(3);
+    expect(gridColumnCount(10)).toBe(4);
+  });
+
+  it("rearranges the same panes and loops back to columns", () => {
+    const ids = ["chat", "term", "browser", "draft", "phone"];
+    let root: MosaicNode | null = buildPresetTree("two-over-one", ids, idFactory());
+    const seen: MosaicArrangement[] = [];
+    for (let step = 0; step < 4; step += 1) {
+      const next = nextArrangement(arrangementOf(root));
+      seen.push(next);
+      root = buildArrangementTree(next, collectPaneIds(root), idFactory());
+      expect(collectPaneIds(root)).toEqual(ids);
+    }
+    expect(seen).toEqual(["columns", "rows", "grid", "columns"]);
+    expect(arrangementOf(root)).toBe("columns");
+  });
+
+  it("lays columns in one row, rows in one stack, and a square grid", () => {
+    const columns = layoutMosaic(buildArrangementTree("columns", ["a", "b", "c"], idFactory()));
+    expect(columns.panes.map(({ rect }) => Math.round(rect.width))).toEqual([33, 33, 33]);
+    expect(columns.panes.every(({ rect }) => rect.y === 0 && rect.height === 100)).toBe(true);
+
+    const rows = layoutMosaic(buildArrangementTree("rows", ["a", "b", "c"], idFactory()));
+    expect(rows.panes.map(({ rect }) => Math.round(rect.height))).toEqual([33, 33, 33]);
+    expect(rows.panes.every(({ rect }) => rect.x === 0 && rect.width === 100)).toBe(true);
+
+    const grid = layoutMosaic(buildArrangementTree("grid", ["a", "b", "c", "d", "e"], idFactory()));
+    expect(grid.panes.map(({ rect }) => Math.round(rect.width))).toEqual([33, 33, 33, 50, 50]);
+    expect(grid.panes.every(({ rect }) => rect.height === 50)).toBe(true);
+    expect(arrangementOf(buildArrangementTree("grid", ["a", "b", "c"], idFactory()))).toBe("grid");
+    expect(
+      arrangementOf(buildPresetTree("three-over-two", ["a", "b", "c", "d"], idFactory())),
+    ).toBe(null);
   });
 });
 

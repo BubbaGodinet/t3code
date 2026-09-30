@@ -1,6 +1,7 @@
 import {
   ArrowLeftRightIcon,
   BuildingIcon,
+  LayoutGridIcon,
   MessageSquarePlusIcon,
   PictureInPicture2Icon,
   SquareTerminalIcon,
@@ -19,6 +20,12 @@ import {
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 
 import { Button } from "../../components/ui/button";
+import {
+  Tooltip,
+  TooltipPopup,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../components/ui/tooltip";
 import { SidebarInset } from "../../components/ui/sidebar";
 import { WorkspacePageHeader } from "../../components/WorkspacePageHeader";
 import { useComposerDraftStore, type DraftId } from "../../composerDraftStore";
@@ -39,13 +46,54 @@ import { moveFloatRect, resizeFloatRect } from "./mosaicFloat";
 import { MosaicPaneView } from "./MosaicPane";
 import { routedDraftAgent, routeTargetKey, useMosaicStore } from "./mosaicStore";
 import { detachedFloatingPaneIds } from "./mosaicSurfaces";
-import { dropZoneAt, layoutMosaic, type MosaicDivider, type MosaicDropZone } from "./mosaicTree";
+import {
+  arrangementOf,
+  ARRANGEMENT_LABEL,
+  collectPaneIds,
+  dropZoneAt,
+  layoutMosaic,
+  nextArrangement,
+  type MosaicDivider,
+  type MosaicDropZone,
+} from "./mosaicTree";
 import { useMosaicActions } from "./useMosaicActions";
 import { useMosaicConfigs } from "./useMosaicConfigs";
 import { useMosaicLayoutSync } from "./useMosaicLayoutSync";
 
 /** Half the gap between panes, in px; panes inset by this so dividers sit in the gutter. */
 const GUTTER = 3;
+
+/** One icon beside Configurations. Each click advances columns, rows, then grid. */
+function LayoutCycleButton() {
+  const root = useMosaicStore((state) => state.root);
+  const applyArrangement = useMosaicStore((state) => state.applyArrangement);
+  const current = arrangementOf(root);
+  const next = nextArrangement(current);
+  const nextLabel = ARRANGEMENT_LABEL[next];
+  const label = current
+    ? `${ARRANGEMENT_LABEL[current]} layout. Next: ${nextLabel}`
+    : `Next layout: ${nextLabel}`;
+  return (
+    <TooltipProvider delay={400}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              size="icon-xs"
+              variant="outline"
+              disabled={collectPaneIds(root).length === 0}
+              aria-label={label}
+              onClick={() => applyArrangement(next)}
+            />
+          }
+        >
+          <LayoutGridIcon />
+        </TooltipTrigger>
+        <TooltipPopup>{label}</TooltipPopup>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 /**
  * Runs a pointer drag captured on `handle`, reporting movement in container
@@ -400,6 +448,7 @@ export function ChatMosaic({ routeTarget }: { routeTarget: ThreadRouteTarget | n
           </Button>
         </div>
         <div className="flex items-center gap-1 [-webkit-app-region:no-drag]">
+          <LayoutCycleButton />
           <ConfigurationSwitcher configs={configs} loadConfig={loadConfig} />
           <SaveConfigurationButton configs={configs} ready={ready} saveConfig={saveConfig} />
           <Button size="xs" variant="ghost-muted" onClick={() => setEnabled(false)}>
