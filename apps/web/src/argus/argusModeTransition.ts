@@ -1,9 +1,5 @@
 import type { ArgusMode } from "./argusCommandCenter";
-import { playArgusMelt } from "./argusMelt";
 import { playArgusReveal } from "./argusReveal";
-
-/** Command melts into Sanctuary; Sanctuary is eaten away to reveal Command. */
-export type ArgusModeTransition = "melt" | "reveal";
 
 /** How long the pill's selection slides before the space changes. Matches the knob's CSS. */
 export const ARGUS_PILL_SLIDE_MS = 200;
@@ -15,11 +11,6 @@ const SPACE_COMMIT_TIMEOUT_MS = 1_000;
 type ArgusViewTransitionDocument = Document & {
   startViewTransition?: (update: () => Promise<void>) => { readonly finished: Promise<void> };
 };
-
-export function argusModeTransition(from: ArgusMode, to: ArgusMode): ArgusModeTransition | null {
-  if (from === to) return null;
-  return to === "sanctuary" ? "melt" : "reveal";
-}
 
 export function prefersReducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -48,16 +39,15 @@ function argusSpaceCommitted(target: ArgusMode): Promise<void> {
 }
 
 /**
- * Runs the mode change, after the pill's knob has slid for `slideMs`. With a
- * snapshot of the space being left, the transition is a WebGL shader: the melt
- * in `argusMelt.ts` or the reveal in `argusReveal.ts`. Otherwise the change
- * runs inside a one-shot view transition that `index.css` animates. Either way
- * `data-argus-mode-transition` names the transition on the root element from
- * the moment it is picked, which also holds Sanctuary's silk still. Reduced
+ * Runs the change into `target` mode, after the pill's knob has slid for
+ * `slideMs`. Both directions play the same transition. With a snapshot of the
+ * space being left, it is the WebGL shader in `argusReveal.ts`; otherwise the
+ * change runs inside a one-shot view transition that `index.css` animates.
+ * Either way `data-argus-mode-transition` is set on the root element from the
+ * moment the switch starts, which also holds Sanctuary's silk still. Reduced
  * motion switches instantly; no View Transitions support switches after the slide.
  */
 export async function runArgusModeTransition(
-  transition: ArgusModeTransition,
   target: ArgusMode,
   update: () => void | Promise<void>,
   snapshot?: Promise<HTMLCanvasElement | null>,
@@ -77,7 +67,7 @@ export async function runArgusModeTransition(
   };
   const committed = () => argusSpaceCommitted(target);
   const root = transitionDocument.documentElement;
-  root.dataset.argusModeTransition = transition;
+  root.dataset.argusModeTransition = "reveal";
   try {
     const [image] = await Promise.all([
       snapshot,
@@ -85,8 +75,7 @@ export async function runArgusModeTransition(
     ]);
     if (image) {
       try {
-        const play = transition === "melt" ? playArgusMelt : playArgusReveal;
-        if (await play(image, runUpdate, committed)) return;
+        if (await playArgusReveal(image, runUpdate, committed)) return;
       } catch {
         await runUpdate();
         return;

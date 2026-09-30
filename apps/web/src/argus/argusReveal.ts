@@ -1,9 +1,10 @@
 /**
- * The Sanctuary → Command reveal. A snapshot of Sanctuary is eaten away by the
- * shader from Arlind Aliu's Shader Image Transition
- * (https://github.com/Arrlindii/Shader-Image-Transition, `src/shaders/fragment.glsl`,
- * MIT): a noisy circle grows from the center and merges with rings of smaller
- * circles, and live Command shows through wherever it has reached.
+ * The Command ↔ Sanctuary reveal, the same both ways. A snapshot of the space
+ * being left is eaten away by the shader from Arlind Aliu's Shader Image
+ * Transition (https://github.com/Arrlindii/Shader-Image-Transition,
+ * `src/shaders/fragment.glsl`, MIT): a noisy circle grows from the center and
+ * merges with rings of smaller circles, and the live space being entered shows
+ * through wherever it has reached.
  */
 
 import { animateArgusShader, createArgusShaderOverlay, nextFrame } from "./argusWindowShader";
@@ -13,8 +14,8 @@ const REVEAL_DURATION_MS = 1200;
 
 /**
  * fragment.glsl, for WebGL 1: `round` is written out, and instead of revealing
- * the texture over transparency it keeps Sanctuary where the shape has not
- * reached and clears it where it has.
+ * the texture over transparency it keeps the outgoing space where the shape
+ * has not reached and clears it where it has.
  */
 const REVEAL_FRAGMENT_SHADER = `
 precision highp float;
@@ -95,19 +96,19 @@ export function revealEase(t: number): number {
 }
 
 /**
- * Covers the window (under the pill) with the Sanctuary snapshot, runs `update`
- * beneath it, waits for `committed`, then reveals live Command through the
- * shape. False, without running `update`, when WebGL is unavailable so the
- * caller can fall back.
+ * Covers the window (under the pill) with the `outgoing` snapshot, runs
+ * `update` beneath it, waits for `committed`, then reveals the live new space
+ * through the shape. False, without running `update`, when WebGL is unavailable
+ * so the caller can fall back.
  */
 export async function playArgusReveal(
-  sanctuary: HTMLCanvasElement,
+  outgoing: HTMLCanvasElement,
   update: () => Promise<void>,
   committed: () => Promise<void>,
 ): Promise<boolean> {
   const overlay = createArgusShaderOverlay({
-    width: sanctuary.width,
-    height: sanctuary.height,
+    width: outgoing.width,
+    height: outgoing.height,
     fragmentShader: REVEAL_FRAGMENT_SHADER,
     progressUniform: "uProgress",
     alpha: true,
@@ -117,13 +118,14 @@ export async function playArgusReveal(
   // The demo's sizes are in CSS pixels, which its constants are tuned for.
   gl.uniform2f(gl.getUniformLocation(program, "uSize"), window.innerWidth, window.innerHeight);
   gl.uniform1i(gl.getUniformLocation(program, "uTexture"), 0);
-  overlay.upload(0, sanctuary);
+  overlay.upload(0, outgoing);
   overlay.draw(0);
   overlay.mount();
 
   try {
     await update();
     await committed();
+    // Two frames: the new space's effects (Sanctuary's silk canvas) run after its first paint.
     await nextFrame();
     await nextFrame();
     await animateArgusShader(REVEAL_DURATION_MS, (t) => overlay.draw(revealEase(t)));

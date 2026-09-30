@@ -13,7 +13,6 @@ import {
 } from "./argusCommandCenter";
 import {
   ARGUS_PILL_SLIDE_MS,
-  argusModeTransition,
   prefersReducedMotion,
   runArgusModeTransition,
 } from "./argusModeTransition";
@@ -37,8 +36,7 @@ export function ArgusModePillHost() {
 /**
  * Command is the pane grid; Sanctuary is the framing Argus window's page, or
  * the in-app Sanctuary space when nothing frames T3. Picking a side slides the
- * knob first, then the space changes: Command melts into Sanctuary, Sanctuary
- * is eaten away to reveal Command.
+ * knob first, then the space being left is eaten away to reveal the other.
  */
 function ArgusModeSwitcher({ current, className }: { current: ArgusMode; className?: string }) {
   const currentHref = useLocation({ select: (location) => location.href });
@@ -56,15 +54,13 @@ function ArgusModeSwitcher({ current, className }: { current: ArgusMode; classNa
   const pick = (tab: ArgusModeTab) => {
     if (tab.mode === shown || switching.current) return;
     setPicked({ from: current, to: tab.mode });
-    const transition = tab.action.kind === "frame" ? null : argusModeTransition(current, tab.mode);
-    if (!transition || prefersReducedMotion()) {
+    if (tab.action.kind === "frame" || tab.mode === current || prefersReducedMotion()) {
       runArgusModeAction(tab.action, { currentHref, navigate: (href) => void navigate({ href }) });
       return;
     }
     switching.current = true;
     // Snapshot the space being left while the knob slides, so the shader starts as the knob lands.
     void runArgusModeTransition(
-      transition,
       tab.mode,
       async () => {
         let navigation: Promise<void> | undefined;

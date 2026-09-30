@@ -1,7 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { type RefObject, useEffect, useRef } from "react";
 
-import { provideSanctuarySnapshot } from "../argus/argusMelt";
 import { ARGUS_SANCTUARY_SPACE_ATTRIBUTE } from "../argus/argusModeTransition";
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
@@ -100,11 +99,9 @@ function compileSilkProgram(gl: WebGLRenderingContext) {
 
 /**
  * Draws the silk into one canvas inside `host`. It runs at 30fps, pauses while the
- * window is hidden, and holds a still frame under reduced motion. The returned ref
- * draws the current frame and hands back the canvas, for the melt to paint.
+ * window is hidden, and holds a still frame under reduced motion.
  */
 function useSanctuarySilk(host: RefObject<HTMLDivElement | null>) {
-  const currentFrame = useRef<(() => HTMLCanvasElement) | null>(null);
   useEffect(() => {
     const hostElement = host.current;
     if (!hostElement) return;
@@ -135,8 +132,8 @@ function useSanctuarySilk(host: RefObject<HTMLDivElement | null>) {
     const root = document.documentElement;
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick);
-      // Held through a mode transition, so the melt's painting of Sanctuary still matches when
-      // it fades away, and the reveal's snapshot matches the page it covers.
+      // Held through a mode transition, so the reveal's snapshot of Sanctuary matches the
+      // page it covers.
       if (root.dataset.argusModeTransition) {
         lastFrameAt = now;
         return;
@@ -167,12 +164,6 @@ function useSanctuarySilk(host: RefObject<HTMLDivElement | null>) {
       gl.viewport(0, 0, width, height);
       draw();
     };
-
-    currentFrame.current = () => {
-      draw();
-      return canvas;
-    };
-
     const onContextLost = (event: Event) => {
       event.preventDefault();
       silk = null;
@@ -195,7 +186,6 @@ function useSanctuarySilk(host: RefObject<HTMLDivElement | null>) {
     sync();
 
     return () => {
-      currentFrame.current = null;
       cancelAnimationFrame(frame);
       resizeObserver.disconnect();
       reducedMotion.removeEventListener("change", sync);
@@ -206,61 +196,11 @@ function useSanctuarySilk(host: RefObject<HTMLDivElement | null>) {
       canvas.remove();
     };
   }, [host]);
-  return currentFrame;
 }
 
 /** Where the glass panel sits in the window, shared by the panel and its content. */
 const GLASS_FRAME =
   "absolute inset-x-[max(1.5rem,calc((100%_-_72rem)/2))] top-[calc(var(--workspace-topbar-height)_+_1rem)] bottom-8 rounded-[20px]";
-
-/**
- * Sanctuary without its content, for the melt to melt into: the silk frame, and
- * the glass panel drawn with the same filter and tint as `.argus-sanctuary-glass`.
- */
-function paintSanctuary(
-  silk: HTMLCanvasElement | null,
-  glass: HTMLElement | null,
-  width: number,
-  height: number,
-): HTMLCanvasElement | null {
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) return null;
-  const paintSilk = () => {
-    if (silk) context.drawImage(silk, 0, 0, width, height);
-    else context.fillRect(0, 0, width, height);
-  };
-  context.fillStyle = "#3e356e";
-  paintSilk();
-  if (!glass) return canvas;
-
-  const scale = width / window.innerWidth;
-  const rect = glass.getBoundingClientRect();
-  const x = rect.left * scale;
-  const y = rect.top * scale;
-  const panelWidth = rect.width * scale;
-  const panelHeight = rect.height * scale;
-  const panel = () => {
-    context.beginPath();
-    context.roundRect(x, y, panelWidth, panelHeight, 20 * scale);
-  };
-  context.save();
-  panel();
-  context.clip();
-  context.filter = `blur(${28 * scale}px) contrast(0.55) brightness(1.6) saturate(1.2)`;
-  paintSilk();
-  context.filter = "none";
-  context.fillStyle = "rgb(255 255 255 / 0.24)";
-  context.fillRect(x, y, panelWidth, panelHeight);
-  context.restore();
-  panel();
-  context.lineWidth = scale;
-  context.strokeStyle = "rgb(255 255 255 / 0.45)";
-  context.stroke();
-  return canvas;
-}
 
 /**
  * Argus Sanctuary inside the app window, for desktop and unframed web. Its own
@@ -270,15 +210,7 @@ function paintSanctuary(
  */
 function SanctuaryRouteView() {
   const silkHost = useRef<HTMLDivElement>(null);
-  const glass = useRef<HTMLDivElement>(null);
-  const silkFrame = useSanctuarySilk(silkHost);
-  useEffect(
-    () =>
-      provideSanctuarySnapshot((width, height) =>
-        paintSanctuary(silkFrame.current?.() ?? null, glass.current, width, height),
-      ),
-    [silkFrame],
-  );
+  useSanctuarySilk(silkHost);
 
   return (
     <div
@@ -286,7 +218,7 @@ function SanctuaryRouteView() {
       className="relative h-dvh min-h-0 w-full overflow-hidden overscroll-y-none bg-[#3e356e] text-ink isolate"
     >
       <div ref={silkHost} aria-hidden className="absolute inset-0" />
-      <div ref={glass} aria-hidden className={cn(GLASS_FRAME, "argus-sanctuary-glass")} />
+      <div aria-hidden className={cn(GLASS_FRAME, "argus-sanctuary-glass")} />
       <main className={cn(GLASS_FRAME, "overflow-hidden")}>
         <SanctuarySpace />
       </main>
