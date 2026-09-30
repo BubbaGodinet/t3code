@@ -369,7 +369,11 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
-import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
+import {
+  deriveUnsettledTurnId,
+  resolveTimelineIsAtEnd,
+  worktreeSetupAgentStarted,
+} from "./chat/MessagesTimeline.logic";
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
@@ -481,6 +485,13 @@ import {
 import type { ThreadSyncPhase } from "../threadSync";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
+import {
+  ChatAgentsBar,
+  ChatOutputsView,
+  type ChatSurfaceView,
+} from "../argus/agents/ChatAgentsBar";
+import { deriveChatAgents, deriveChatOutputs, type ChatOutput } from "../argus/agents/chatAgents";
+import { useChatOutputsStore } from "../argus/agents/chatOutputsStore";
 import { useChatPane } from "../argus/mosaic/chatPaneContext";
 import { MosaicEnterButton } from "../argus/mosaic/MosaicEnterButton";
 import {
@@ -536,6 +547,7 @@ import {
 
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_QUEUED_MESSAGES: QueuedComposerMessage[] = [];
+const EMPTY_CHAT_OUTPUTS: ReadonlyArray<ChatOutput> = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -9494,6 +9506,83 @@ export default function ChatView(props: ChatViewProps) {
     void onRevertToTurnCountRef.current(targetTurnCount, messageId);
   }, []);
 
+  // Argus agent indicator and the chat's kept outputs.
+  const agentsMainLabel = activeThread?.modelSelection.model ?? "Agent";
+  const threadCheckpoints = activeThread?.checkpoints ?? EMPTY_HELD_TURN_DIFF_SUMMARIES;
+  const chatAgents = useMemo(
+    () =>
+      isServerThread
+        ? deriveChatAgents({
+            mainLabel: agentsMainLabel,
+            isWorking,
+            latestTurn: activeLatestTurn,
+            runningTurnId: activeRunningTurnId,
+            agentPanelModel,
+            workLogEntries,
+            checkpoints: threadCheckpoints,
+          })
+        : [],
+    [
+      activeLatestTurn,
+      activeRunningTurnId,
+      agentPanelModel,
+      agentsMainLabel,
+      isServerThread,
+      isWorking,
+      threadCheckpoints,
+      workLogEntries,
+    ],
+  );
+  const unsettledTurnId = deriveUnsettledTurnId(activeLatestTurn, activeRunningTurnId);
+  const recordChatOutputs = useChatOutputsStore((state) => state.record);
+  // Read at record time so streaming tokens do not re-derive every output.
+  const recordFinishedOutputs = useEffectEvent(() => {
+    if (!isServerThread || !activeThreadKey || !activeThread) return;
+    recordChatOutputs(
+      activeThreadKey,
+      deriveChatOutputs({
+        mainLabel: agentsMainLabel,
+        messages: activeThread.messages,
+        unsettledTurnId,
+        latestTurn: activeLatestTurn,
+        agentPanelModel,
+        workLogEntries,
+        checkpoints: threadCheckpoints,
+      }),
+    );
+  });
+  const threadMessageCount = activeThread?.messages.length ?? 0;
+  useEffect(() => {
+    recordFinishedOutputs();
+  }, [
+    activeThreadKey,
+    unsettledTurnId,
+    activeLatestTurn?.state,
+    activeLatestTurn?.completedAt,
+    threadMessageCount,
+    threadCheckpoints,
+    agentPanelModel,
+  ]);
+  const keptChatOutputs =
+    useChatOutputsStore((state) =>
+      activeThreadKey ? state.byThread[activeThreadKey]?.outputs : undefined,
+    ) ?? EMPTY_CHAT_OUTPUTS;
+  const [outputsViewThreadKey, setOutputsViewThreadKey] = useState<string | null>(null);
+  const chatSurfaceView: ChatSurfaceView =
+    outputsViewThreadKey !== null && outputsViewThreadKey === activeThreadKey
+      ? "outputs"
+      : "transcript";
+  const onChatSurfaceViewChange = useCallback(
+    (view: ChatSurfaceView) => setOutputsViewThreadKey(view === "outputs" ? activeThreadKey : null),
+    [activeThreadKey],
+  );
+  const onOpenOutputFile = useCallback(
+    (output: ChatOutput, path: string) => {
+      if (output.turnId) onOpenTurnDiff(output.turnId, path);
+    },
+    [onOpenTurnDiff],
+  );
+
   // Files dropped on a sidebar row land here once the dropped-on thread is
   // actually open, then take the exact same path as a workspace drop:
   // validate, compress, focus the composer, never send. Kept above the
@@ -9841,6 +9930,14 @@ export default function ChatView(props: ChatViewProps) {
             onDeleteProjectScript={deleteProjectScript}
           />
         </WorkspacePageHeader>
+        {chatAgents.length > 0 || keptChatOutputs.length > 0 ? (
+          <ChatAgentsBar
+            agents={chatAgents}
+            outputCount={keptChatOutputs.length}
+            view={chatSurfaceView}
+            onViewChange={onChatSurfaceViewChange}
+          />
+        ) : null}
 
         {/* Main content area with optional plan sidebar */}
         <div className="flex min-h-0 min-w-0 flex-1">
@@ -9970,9 +10067,22 @@ export default function ChatView(props: ChatViewProps) {
                 )}
                 onRemoveQueuedMessage={onRemoveQueuedMessage}
               />
+              {/* Covers the transcript without unmounting it, so its scroll position survives. */}
+              {chatSurfaceView === "outputs" ? (
+                <div className="absolute inset-0 z-10 bg-background">
+                  <ChatOutputsView
+                    outputs={keptChatOutputs}
+                    cwd={gitCwd ?? undefined}
+                    threadRef={activeThreadRef ?? undefined}
+                    timestampFormat={timestampFormat}
+                    bottomInset={composerTimelineInset}
+                    onOpenFile={onOpenOutputFile}
+                  />
+                </div>
+              ) : null}
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
-              {showScrollToBottom && (
+              {showScrollToBottom && chatSurfaceView === "transcript" && (
                 <div
                   className="pointer-events-none absolute left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5"
                   style={{ bottom: scrollToEndClearance + 4 }}

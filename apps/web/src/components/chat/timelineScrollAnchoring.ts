@@ -115,7 +115,8 @@ export interface RememberedTimelinePosition {
   readonly disclosures?: {
     readonly turns: ReadonlySet<TurnId>;
     readonly workGroups: ReadonlySet<string>;
-    readonly spawnEntries: ReadonlySet<string>;
+    /** Subagent sections start open; this holds the ones the user closed. */
+    readonly collapsedSpawnEntries: ReadonlySet<string>;
     readonly reasoningMessages: ReadonlySet<string>;
     readonly workGroupState: {
       scrollPositions: Map<string, { readonly entryId: string; readonly offset: number }>;

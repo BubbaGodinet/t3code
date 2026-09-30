@@ -1407,7 +1407,8 @@ describe("deriveMessagesTimelineRows", () => {
         liveAgentTaskIds,
         ...(expandedTurnIds ? { expandedTurnIds } : {}),
       }).map((row) => row.id);
-    const unfolded = ["turn-fold:turn-1", "spawn-entry", "assistant-final-entry"];
+    // Assistant text never folds, so this turn has nothing to hide.
+    const unfolded = ["assistant-first-entry", "spawn-entry", "assistant-final-entry"];
 
     const activeRows = (
       timelineEntries: typeof direct,
@@ -1476,13 +1477,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(derive(workflow, new Set())).toEqual(unfolded);
     // No live set is known.
     expect(derive(direct, undefined)).toEqual(unfolded);
-    // Expanding the turn reveals the other work without duplicating the batch.
-    expect(derive(direct, new Set(), new Set(["turn-1" as TurnId]))).toEqual([
-      "turn-fold:turn-1",
-      "assistant-first-entry",
-      "spawn-entry",
-      "assistant-final-entry",
-    ]);
+    expect(derive(direct, new Set(), new Set(["turn-1" as TurnId]))).toEqual(unfolded);
   });
 
   it("only enables assistant copy for the terminal assistant message in a turn", () => {
@@ -1662,7 +1657,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRow?.assistantTurnDiffSummary).toBe(assistantTurnDiffSummary);
   });
 
-  it("folds the first assistant message and settled work before the terminal response", () => {
+  it("folds settled work before the terminal response but keeps earlier assistant text", () => {
     const timelineEntries = [
       {
         id: "user-entry",
@@ -1738,6 +1733,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(foldRow?.label).toBe("Worked for 22s");
     expect(collapsedRows.map((row) => row.id)).toEqual([
       "user-entry",
+      "assistant-first-entry",
       "turn-fold:turn-1",
       "assistant-final-entry",
     ]);
@@ -1753,8 +1749,8 @@ describe("deriveMessagesTimelineRows", () => {
 
     expect(expandedRows.map((row) => row.id)).toEqual([
       "user-entry",
-      "turn-fold:turn-1",
       "assistant-first-entry",
+      "turn-fold:turn-1",
       "work-entry-1",
       "assistant-final-entry",
     ]);
@@ -1850,7 +1846,7 @@ describe("deriveMessagesTimelineRows", () => {
     ).toEqual(["turn-fold:turn-1", "assistant-final-entry"]);
   });
 
-  it("folds all assistant messages before the terminal message", () => {
+  it("never folds assistant messages before the terminal message", () => {
     const timelineEntries = [
       {
         id: "assistant-first-entry",
@@ -1904,7 +1900,86 @@ describe("deriveMessagesTimelineRows", () => {
       supportsConversationRollback: false,
     });
 
-    expect(rows.map((row) => row.id)).toEqual(["turn-fold:turn-1", "assistant-final-entry"]);
+    expect(rows.map((row) => row.id)).toEqual([
+      "assistant-first-entry",
+      "assistant-middle-entry",
+      "assistant-final-entry",
+    ]);
+  });
+
+  it("keeps an interrupted turn's answer readable after the next turn starts", () => {
+    const turnOne = TurnId.make("turn-1");
+    const turnTwo = TurnId.make("turn-2");
+    const message = (
+      id: string,
+      role: "user" | "assistant",
+      at: string,
+      turnId: TurnId | null,
+      text: string,
+    ) => ({
+      id: `${id}-entry`,
+      kind: "message" as const,
+      createdAt: at,
+      message: {
+        id: id as never,
+        role,
+        text,
+        turnId,
+        createdAt: at,
+        updatedAt: at,
+        streaming: false,
+      },
+    });
+    const work = (id: string, at: string, turnId: TurnId) => ({
+      id: `${id}-entry`,
+      kind: "work" as const,
+      createdAt: at,
+      entry: { id, createdAt: at, turnId, label: "Ran command", tone: "tool" as const },
+    });
+    const interruptedTurn = [
+      message("user-1", "user", "2026-01-01T00:00:00Z", null, "Refactor it"),
+      message("draft-answer", "assistant", "2026-01-01T00:00:02Z", turnOne, "Half an answer"),
+      work("work-1", "2026-01-01T00:00:03Z", turnOne),
+      work("work-2", "2026-01-01T00:00:04Z", turnOne),
+      message("partial", "assistant", "2026-01-01T00:00:05Z", turnOne, "Partial findings"),
+    ];
+    const base = {
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    };
+
+    const afterInterrupt = deriveMessagesTimelineRows({
+      ...base,
+      timelineEntries: interruptedTurn,
+      latestTurn: {
+        turnId: turnOne,
+        state: "interrupted",
+        startedAt: "2026-01-01T00:00:00Z",
+        completedAt: "2026-01-01T00:00:06Z",
+      },
+    }).map((row) => row.id);
+    const afterNextTurn = deriveMessagesTimelineRows({
+      ...base,
+      timelineEntries: [
+        ...interruptedTurn,
+        message("user-2", "user", "2026-01-01T00:01:00Z", null, "Keep going"),
+        message("next-answer", "assistant", "2026-01-01T00:01:05Z", turnTwo, "All done"),
+      ],
+      latestTurn: {
+        turnId: turnTwo,
+        state: "completed",
+        startedAt: "2026-01-01T00:01:00Z",
+        completedAt: "2026-01-01T00:01:06Z",
+      },
+    }).map((row) => row.id);
+
+    for (const rows of [afterInterrupt, afterNextTurn]) {
+      expect(rows).toContain("draft-answer-entry");
+      expect(rows).toContain("partial-entry");
+    }
+    expect(afterNextTurn).toContain("next-answer-entry");
   });
 
   const reasoningEntry = (id: string, at: string, turnId: string | null) => ({

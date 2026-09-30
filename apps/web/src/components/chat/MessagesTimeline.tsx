@@ -297,7 +297,7 @@ interface TimelineRowSharedState {
   expandedReasoningMessageIds: ReadonlySet<string>;
   workGroupViewState: WorkGroupViewState;
   agentPanelModel: AgentPanelModel;
-  expandedSpawnEntryIds: ReadonlySet<string>;
+  collapsedSpawnEntryIds: ReadonlySet<string>;
   onOpenAgents: () => void;
   onCancelWorktreeSetup: (() => void) | null;
   onWorktreeSetupWorkLocally: (() => void) | null;
@@ -539,8 +539,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(
     () => rememberedPosition?.disclosures?.workGroups ?? new Set(),
   );
-  const [expandedSpawnEntryIds, setExpandedSpawnEntryIds] = useState<ReadonlySet<string>>(
-    () => rememberedPosition?.disclosures?.spawnEntries ?? new Set(),
+  const [collapsedSpawnEntryIds, setCollapsedSpawnEntryIds] = useState<ReadonlySet<string>>(
+    () => rememberedPosition?.disclosures?.collapsedSpawnEntries ?? new Set(),
   );
   const [expandedReasoningMessageIds, setExpandedReasoningMessageIds] = useState<
     ReadonlySet<string>
@@ -557,7 +557,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(null);
   let paintedExpandedTurnIds = expandedTurnIds;
   let paintedExpandedWorkGroupIds = expandedWorkGroupIds;
-  let paintedExpandedSpawnEntryIds = expandedSpawnEntryIds;
+  let paintedCollapsedSpawnEntryIds = collapsedSpawnEntryIds;
   let paintedExpandedReasoningMessageIds = expandedReasoningMessageIds;
   if (listIdentityRef.current !== listIdentityKey) {
     listIdentityRef.current = listIdentityKey;
@@ -566,20 +566,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     setSettlingListIdentity(listIdentityKey);
     paintedExpandedTurnIds = rememberedPosition?.disclosures?.turns ?? new Set();
     paintedExpandedWorkGroupIds = rememberedPosition?.disclosures?.workGroups ?? new Set();
-    paintedExpandedSpawnEntryIds = rememberedPosition?.disclosures?.spawnEntries ?? new Set();
+    paintedCollapsedSpawnEntryIds =
+      rememberedPosition?.disclosures?.collapsedSpawnEntries ?? new Set();
     paintedExpandedReasoningMessageIds =
       rememberedPosition?.disclosures?.reasoningMessages ?? new Set();
     setExpandedTurnIds(paintedExpandedTurnIds);
     setExpandedWorkGroupIds(paintedExpandedWorkGroupIds);
-    setExpandedSpawnEntryIds(paintedExpandedSpawnEntryIds);
+    setCollapsedSpawnEntryIds(paintedCollapsedSpawnEntryIds);
     setExpandedReasoningMessageIds(paintedExpandedReasoningMessageIds);
   }
   const onToggleSpawnRow = useCallback((entryId: string, expanded: boolean) => {
-    setExpandedSpawnEntryIds((current) => {
-      if (current.has(entryId) === expanded) return current;
+    setCollapsedSpawnEntryIds((current) => {
+      if (current.has(entryId) !== expanded) return current;
       const next = new Set(current);
-      if (expanded) next.add(entryId);
-      else next.delete(entryId);
+      if (expanded) next.delete(entryId);
+      else next.add(entryId);
       return next;
     });
   }, []);
@@ -716,31 +717,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
 
   // An in-session interrupt leaves its turn expanded so the user keeps their
-  // place; the next turn (or a reload, since this is local state) folds it.
+  // place. A later turn never folds it (or any turn the user opened) again.
   useEffect(() => {
     const previous = previousLatestTurnRef.current;
     previousLatestTurnRef.current = latestTurn;
-    if (!latestTurn || previous?.turnId === undefined) {
+    if (!latestTurn || previous?.turnId !== latestTurn.turnId) {
       return;
     }
-    if (latestTurn.turnId === previous.turnId) {
-      if (previous.state === "running" && latestTurn.state === "interrupted") {
-        setExpandedTurnIds((existing) => {
-          const next = new Set(existing);
-          next.add(latestTurn.turnId);
-          return next;
-        });
-      }
-      return;
+    if (previous.state === "running" && latestTurn.state === "interrupted") {
+      setExpandedTurnIds((existing) => {
+        const next = new Set(existing);
+        next.add(latestTurn.turnId);
+        return next;
+      });
     }
-    setExpandedTurnIds((existing) => {
-      if (!existing.has(previous.turnId)) {
-        return existing;
-      }
-      const next = new Set(existing);
-      next.delete(previous.turnId);
-      return next;
-    });
   }, [latestTurn]);
 
   const rowsProjectionRef = useRef<{
@@ -1037,7 +1027,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           disclosures: {
             turns: paintedExpandedTurnIds,
             workGroups: paintedExpandedWorkGroupIds,
-            spawnEntries: paintedExpandedSpawnEntryIds,
+            collapsedSpawnEntries: paintedCollapsedSpawnEntryIds,
             reasoningMessages: paintedExpandedReasoningMessageIds,
             workGroupState: workGroupViewState,
           },
@@ -1086,7 +1076,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     citationPositioning,
     paintedExpandedTurnIds,
     paintedExpandedWorkGroupIds,
-    paintedExpandedSpawnEntryIds,
+    paintedCollapsedSpawnEntryIds,
     paintedExpandedReasoningMessageIds,
     workGroupViewState,
     rows,
@@ -1158,7 +1148,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       expandedReasoningMessageIds: paintedExpandedReasoningMessageIds,
       workGroupViewState,
       agentPanelModel: agentPanelModel ?? EMPTY_AGENT_PANEL_MODEL,
-      expandedSpawnEntryIds: paintedExpandedSpawnEntryIds,
+      collapsedSpawnEntryIds: paintedCollapsedSpawnEntryIds,
       onOpenAgents,
       onCancelWorktreeSetup: onCancelWorktreeSetup ?? null,
       onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
@@ -1193,7 +1183,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       paintedExpandedReasoningMessageIds,
       workGroupViewState,
       agentPanelModel,
-      paintedExpandedSpawnEntryIds,
+      paintedCollapsedSpawnEntryIds,
       onOpenAgents,
       onCancelWorktreeSetup,
       onWorktreeSetupWorkLocally,
@@ -4598,13 +4588,13 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 }) {
   const { workEntry } = props;
-  const { agentPanelModel, expandedSpawnEntryIds, onToggleSpawnRow, onOpenAgents } =
+  const { agentPanelModel, collapsedSpawnEntryIds, onToggleSpawnRow, onOpenAgents } =
     use(TimelineRowCtx);
   const spawn = workEntry.agentSpawn;
   if (!spawn) {
     return null;
   }
-  const expanded = expandedSpawnEntryIds.has(workEntry.id);
+  const expanded = !collapsedSpawnEntryIds.has(workEntry.id);
 
   const memberIds = new Set(spawn.agentTaskIds);
   const workflowGroup = spawn.workflowId
@@ -4682,7 +4672,8 @@ function AgentSpawnMemberRow({
   agent: RuntimeSubagent;
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 }) {
-  const [open, setOpen] = useState(false);
+  // A member's report is its output, so it reads open until the user closes it.
+  const [open, setOpen] = useState(true);
   const activeStatus = isActiveSubagentStatus(agent.status);
   const activity = activeStatus
     ? (agent.progress ?? (agent.lastToolName ? `▸ ${agent.lastToolName}` : null))

@@ -46,7 +46,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   cwd: string | undefined;
   workspaceRoot: string | undefined;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [savePath, setSavePath] = useState("");
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);

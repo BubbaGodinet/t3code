@@ -741,6 +741,11 @@ function deriveTurnFolds(input: {
       ) {
         continue;
       }
+      // Anything the agent said stays readable: only work and thinking fold,
+      // so an interrupted or superseded answer is never hidden.
+      if (entry.kind === "message" && entry.message.role === "assistant") {
+        continue;
+      }
       hiddenEntryIds.add(entry.id);
     }
     if (hiddenEntryIds.size === 0) {

@@ -1348,6 +1348,67 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Compacted context 899K → 19K tokens");
   });
 
+  it("shows a finished subagent's full report without expanding anything", async () => {
+    const { deriveAgentPanelModel } = await import("@t3tools/client-runtime/state/subagentRuntime");
+    const agentPanelModel = deriveAgentPanelModel({
+      agents: [
+        {
+          id: "reviewer",
+          kind: "subagent",
+          title: "Reviewer",
+          role: null,
+          model: null,
+          effort: null,
+          status: "completed",
+          activationCount: 1,
+          usage: null,
+          progress: null,
+          lastToolName: null,
+          result: "Review summary\nSecond paragraph of the report",
+          error: null,
+          outputFile: null,
+          parentAgentId: null,
+          agentIndex: null,
+          phaseIndex: null,
+          phaseTitle: null,
+          attempt: null,
+          workflowName: null,
+          phases: [],
+          runHandles: null,
+          recentActivity: [],
+          firstSeenAt: MESSAGE_CREATED_AT,
+          startedAt: MESSAGE_CREATED_AT,
+          completedAt: MESSAGE_CREATED_AT,
+          updatedAt: MESSAGE_CREATED_AT,
+        },
+      ],
+    });
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        agentPanelModel={agentPanelModel}
+        timelineEntries={[
+          {
+            id: "spawn-entry",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "spawn",
+              createdAt: MESSAGE_CREATED_AT,
+              turnId: TurnId.make("turn-1"),
+              label: "Ran 1 subagent",
+              tone: "tool",
+              agentSpawn: { workflowId: null, agentTaskIds: ["reviewer"] },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Reviewer");
+    expect(markup).toContain("Second paragraph of the report");
+  });
+
   it("summarizes changed files in one line", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
