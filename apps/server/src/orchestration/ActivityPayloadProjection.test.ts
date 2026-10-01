@@ -44,6 +44,52 @@ describe("projectActivityPayload", () => {
     expect(data.somethingClientNeverReads).toBeUndefined();
   });
 
+  it("keeps a background Cursor task name and the running flag", () => {
+    const projected = projectActivityPayload(
+      activity({
+        itemType: "other",
+        status: "completed",
+        title: "Task: Gather deadline reopen + notify",
+        toolCallId: "toolu_deadline",
+        data: {
+          toolCallId: "toolu_deadline",
+          kind: "other",
+          rawInput: {
+            _toolName: "task",
+            description: "Gather deadline reopen + notify",
+            prompt: `Read the gather code.\n${"x".repeat(5000)}`,
+            subagentType: { unspecified: {} },
+          },
+          rawOutput: { durationMs: 40, isBackground: true },
+        },
+      }),
+    );
+    const data = (projected.payload as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data.rawOutput).toEqual({ isBackground: true });
+    expect(data.rawInput).toEqual({
+      _toolName: "task",
+      description: "Gather deadline reopen + notify",
+      prompt: "Read the gather code.",
+    });
+    expect(JSON.stringify(data).length).toBeLessThan(500);
+  });
+
+  it("keeps the error on a task that is already running", () => {
+    const stopped = projectActivityPayload(
+      activity({
+        itemType: "other",
+        status: "completed",
+        title: "Task: Stop RN-X work",
+        data: {
+          rawInput: { _toolName: "task", description: "Stop RN-X work", prompt: "Stop it" },
+          rawOutput: { error: "Sub-agent is currently running." },
+        },
+      }),
+    );
+    const data = (stopped.payload as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data.rawOutput).toEqual({ error: "Sub-agent is currently running." });
+  });
+
   it("keeps a bounded Codex command output summary", () => {
     const projected = projectActivityPayload(
       activity({

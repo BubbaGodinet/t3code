@@ -186,10 +186,15 @@ function isCursorAgentTool(
   rawInput: Record<string, unknown> | null,
   rawOutput: Record<string, unknown> | null,
   title: string | null,
+  body: string | null,
 ): boolean {
   const toolName = asText(rawInput?._toolName)?.toLowerCase();
   if (toolName === "task" || toolName === "subagent") return true;
-  return rawOutput?.isBackground === true && (title?.startsWith("Task:") ?? false);
+  if (!(title?.startsWith("Task:") ?? false)) return false;
+  // A background launch is stored as a completed Task row. The snapshot often
+  // keeps only the title: `isBackground` and the prompt are stripped on the wire.
+  if (rawOutput?.isBackground === true) return true;
+  return body === null;
 }
 
 function contentText(value: unknown): string | null {
@@ -253,7 +258,8 @@ function workingDetail(task: CursorTaskAccum): string | null {
 /**
  * Cursor launches subagents as Task tools that complete at once with
  * `{ isBackground: true }`. The child keeps running after the parent turn
- * is done. Those rows are already stored; this is the reader for them.
+ * is done. The wire snapshot often keeps only `Task: <name>`; a row with no
+ * result is still that launch.
  */
 function cursorTaskAgents(
   activities: ReadonlyArray<ChatAgentActivity> | undefined,
@@ -270,7 +276,8 @@ function cursorTaskAgents(
     const rawInput = asRecord(data?.rawInput);
     const rawOutput = asRecord(data?.rawOutput);
     const title = asText(payload?.title) ?? asText(data?.title);
-    if (!isCursorAgentTool(rawInput, rawOutput, title)) continue;
+    const written = outputText(rawOutput) ?? contentText(data?.content);
+    if (!isCursorAgentTool(rawInput, rawOutput, title, written)) continue;
     const rawId =
       asText(rawInput?.linkedToolCallId) ?? asText(data?.toolCallId) ?? asText(payload?.toolCallId);
     if (!rawId) continue;
@@ -288,7 +295,6 @@ function cursorTaskAgents(
     if (name && (task.name === task.id || name.length > task.name.length)) task.name = name;
     const prompt = asText(rawInput?.prompt);
     if (prompt && prompt.length > task.prompt.length) task.prompt = prompt;
-    const written = outputText(rawOutput) ?? contentText(data?.content);
     if (written && written.length >= task.transcript.length) task.transcript = written;
     for (const path of locationPaths(data)) {
       if (!task.files.includes(path)) task.files.push(path);
@@ -298,10 +304,13 @@ function cursorTaskAgents(
     const runningError =
       asText(rawOutput?.error)?.toLowerCase().includes("currently running") ?? false;
     const background = rawOutput?.isBackground === true;
+    const namedTask = title?.startsWith("Task:") ?? false;
+    // No result text means the completion is the launch, not the child finishing.
+    const launchOnly = namedTask && !written && !runningError;
     if (childState === "failed" || status === "failed") task.state = "failed";
     else if (childState === "cancelled" || childState === "disconnected") task.state = "stopped";
     else if (childState === "completed") task.state = "done";
-    else if (background) task.state = "working";
+    else if (background || launchOnly) task.state = "working";
     else if (runningError) task.state = "failed";
     else if (status === "completed") task.state = "done";
     else if (status === "in_progress" || status === "inProgress" || status === "pending") {
@@ -322,6 +331,133 @@ function cursorTaskAgents(
       transcript,
     };
   });
+}
+
+/** A markdown href that names an agent. Following it as a URL reloads the app. */
+export function isInlineAgentReference(href: string): boolean {
+  const value = href.trim();
+  if (!value || value.startsWith("#") || value.startsWith("/") || value.startsWith(".")) {
+    return false;
+  }
+  if (value.includes("/") || value.includes("\\") || value.includes("?")) return false;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return false;
+  return true;
+}
+
+export const OPEN_AGENT_EVENT = "argus-open-agent";
+
+/** Ask the open chat to show this agent. Does not change the route. */
+export function requestOpenAgent(ref: { readonly href?: string; readonly label?: string }) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(OPEN_AGENT_EVENT, { detail: ref }));
+}
+
+export function agentMatchingReference(
+  agents: ReadonlyArray<ChatAgentStatus>,
+  ref: { readonly href?: string; readonly label?: string },
+): ChatAgentStatus | undefined {
+  const href = ref.href?.trim();
+  const label = ref.label?.trim().toLowerCase();
+  return (
+    (href ? agents.find((agent) => agent.id === href) : undefined) ??
+    (label ? agents.find((agent) => agent.name.trim().toLowerCase() === label) : undefined)
+  );
+}
+
+const RUNNING_ROSTER = /\b(running|started|own agent|in parallel|at the same time)\b/i;
+const SETTLED_ROSTER =
+  /\b(?:they(?:'ve| have) finished|all (?:three|\d+|of them) (?:have finished|are done|are finished)|they're done)\b/i;
+const AGENT_LINK = /\[([^\]]+)\]\(([^)\s]+)\)/;
+
+/**
+ * Named agents a parent turn lists as still running. Bullet links such as
+ * `[Gather deadline reopen + notify](uuid)` are the roster when the prose
+ * says each change has its own agent. Web links are not agents.
+ */
+function transcriptRunningAgents(
+  messages: ReadonlyArray<Pick<ChatMessage, "role" | "text">> | undefined,
+): ChatAgentStatus[] {
+  if (!messages || messages.length === 0) return [];
+  const details = new Map<string, string>();
+  let roster: Array<{ id: string; name: string; detail: string | null }> | null = null;
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const text = message.text;
+    if (!RUNNING_ROSTER.test(text) || SETTLED_ROSTER.test(text)) continue;
+    const mentions: Array<{ id: string; name: string; detail: string | null }> = [];
+    for (const line of text.split("\n")) {
+      if (!/^\s*[-*+]\s+/.test(line)) continue;
+      const match = AGENT_LINK.exec(line);
+      if (!match?.[1] || !match[2]) continue;
+      const id = match[2].trim();
+      if (!isInlineAgentReference(id)) continue;
+      const name = match[1]
+        .replace(/[*_`]+/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!name) continue;
+      const detail = line
+        .slice((match.index ?? 0) + match[0].length)
+        .replace(/^[\s*_.:：—–-]+/, "")
+        .trim();
+      mentions.push({ id, name, detail: detail.length > 0 ? detail : null });
+    }
+    if (mentions.length === 0) continue;
+    for (const mention of mentions) {
+      const key = mention.name.toLowerCase();
+      if (mention.detail && mention.detail.length > (details.get(key)?.length ?? 0)) {
+        details.set(key, mention.detail);
+      }
+    }
+    roster = mentions;
+  }
+  if (!roster) return [];
+  return roster.map((mention) => {
+    const detail = details.get(mention.name.toLowerCase()) ?? mention.detail;
+    return {
+      id: mention.id,
+      name: mention.name,
+      state: "working" as const,
+      detail: detail ? clipLine(detail) : null,
+      files: [],
+      transcript: detail ?? "",
+    };
+  });
+}
+
+function absorbNamedAgents(
+  byId: Map<string, ChatAgentStatus>,
+  named: ReadonlyArray<ChatAgentStatus>,
+) {
+  const byName = new Map<string, string>();
+  for (const agent of byId.values()) byName.set(agent.name.trim().toLowerCase(), agent.id);
+  for (const agent of named) {
+    const key = agent.name.trim().toLowerCase();
+    const existing = byId.get(byName.get(key) ?? "");
+    if (!existing) {
+      byId.set(agent.id, agent);
+      byName.set(key, agent.id);
+      continue;
+    }
+    // A launch row with no result is not the child finishing. The parent's
+    // report that this agent is still running wins over that empty completion.
+    const stillRunning =
+      agent.state === "working" &&
+      existing.state !== "failed" &&
+      existing.state !== "stopped" &&
+      (existing.state === "working" || existing.transcript.trim().length === 0);
+    byId.set(existing.id, {
+      ...existing,
+      name: existing.name === existing.id ? agent.name : existing.name,
+      state: stillRunning ? "working" : existing.state,
+      detail: existing.detail ?? agent.detail,
+      files: existing.files.length > 0 ? existing.files : agent.files,
+      transcript:
+        existing.transcript.length >= agent.transcript.length
+          ? existing.transcript
+          : agent.transcript,
+    });
+  }
 }
 
 function mergeAgent(current: ChatAgentStatus, incoming: ChatAgentStatus): ChatAgentStatus {
@@ -406,6 +542,7 @@ export function deriveChatAgents(
         : agent,
     );
   }
+  absorbNamedAgents(byId, transcriptRunningAgents(input.messages));
   return orderChatAgents([...byId.values()]);
 }
 

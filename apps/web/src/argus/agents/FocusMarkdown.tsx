@@ -5,6 +5,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
 import { remarkGithubAlerts } from "../../markdown-github-alerts";
+import { isInlineAgentReference } from "./chatAgents";
 import "./markdown-signal.css";
 
 /** List and focus-modal titles, colored with the markdown system's heading ink. */
@@ -81,12 +82,25 @@ const COMPONENTS = {
   },
   a({ node: _node, href, children, ...props }) {
     const external = typeof href === "string" && /^(https?:|mailto:)/.test(href);
+    // Agent names are markdown links to ids. An href would reload the app.
+    if (!external) {
+      const ref = typeof href === "string" && isInlineAgentReference(href) ? href : undefined;
+      return (
+        <a
+          {...props}
+          {...(ref ? { "data-agent-ref": ref } : {})}
+          role="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          {children}
+        </a>
+      );
+    }
     return (
-      <a
-        href={href}
-        {...props}
-        {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
-      >
+      <a href={href} {...props} target="_blank" rel="noreferrer noopener">
         {children}
       </a>
     );

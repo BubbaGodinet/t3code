@@ -90,6 +90,7 @@ import { parseComposerContextHref } from "@t3tools/shared/composerContextReferen
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
 import remarkGfm from "remark-gfm";
 import { remarkGithubAlerts } from "../markdown-github-alerts";
+import { isInlineAgentReference, requestOpenAgent } from "../argus/agents/chatAgents";
 import {
   artifactTemplateFromHastProperties,
   CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES,
@@ -2922,6 +2923,25 @@ const CHAT_MARKDOWN_COMPONENTS = {
         resolveMarkdownFileLinkMeta(normalizedHref, cwd, imageBaseDir ?? cwd))
       : null;
     if (!fileLinkMeta) {
+      // A relative agent id is not a route. Following it reloads onto the mosaic.
+      if (href && isInlineAgentReference(href)) {
+        const label = hastPlainTextDeep(node);
+        return (
+          <a
+            {...props}
+            role="button"
+            data-agent-ref={href}
+            className={props.className}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              requestOpenAgent({ href, label });
+            }}
+          >
+            {children}
+          </a>
+        );
+      }
       const faviconHost = resolveExternalWebLinkHost(href);
       const pullRequestAutolink = String(
         (props as Record<string, unknown>)["data-pull-request-autolink"] ?? "",

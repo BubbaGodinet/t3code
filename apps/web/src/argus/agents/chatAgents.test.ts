@@ -7,6 +7,7 @@ import { TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  agentMatchingReference,
   answerTitle,
   chatOutputTitle,
   chatOutputsSignature,
@@ -14,6 +15,7 @@ import {
   deriveChatOutputs,
   formatAgentFollowUp,
   formatEditedFiles,
+  isInlineAgentReference,
   mergeChatOutputs,
   outputPreviewText,
   outputRowPreview,
@@ -200,6 +202,159 @@ describe("deriveChatAgents", () => {
     expect(agents.find((agent) => agent.id === "call-split")?.transcript).toContain(
       "Edit apps/mobile/src/sync.ts",
     );
+  });
+
+  it("keeps a slimmed background launch running from its Task title", () => {
+    const agents = deriveChatAgents({
+      mainLabel: "claude-opus-5-5",
+      isWorking: false,
+      latestTurn: { turnId: turnOne, state: "completed" },
+      runningTurnId: null,
+      agentPanelModel: emptyAgentPanelModel(),
+      workLogEntries: [],
+      checkpoints: [],
+      activities: [
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:23:45.000Z",
+          payload: {
+            status: "completed",
+            title: "Task: Gather deadline reopen + notify",
+            toolCallId: "toolu_deadline",
+            data: { toolCallId: "toolu_deadline", kind: "other" },
+          },
+        },
+      ],
+    });
+    expect(agents.map((agent) => [agent.name, agent.state])).toEqual([
+      ["Gather deadline reopen + notify", "working"],
+      ["claude-opus-5-5", "done"],
+    ]);
+  });
+
+  it("lists agents the parent says are running when no tool row survived", () => {
+    const agents = deriveChatAgents({
+      mainLabel: "claude-opus-5-5",
+      isWorking: false,
+      latestTurn: { turnId: turnTwo, state: "completed" },
+      runningTurnId: null,
+      agentPanelModel: emptyAgentPanelModel(),
+      workLogEntries: [],
+      checkpoints: [],
+      messages: [
+        {
+          role: "assistant",
+          turnId: turnOne,
+          text: [
+            "I've started three agents in parallel. Each works in its own copy:",
+            "",
+            "- **[Gather deadline reopen + notify](fd73c894-125f-4d01-b5cb-53c1f4bbf325):** saving a gather with a future deadline reopens it.",
+            "- **[Split cellular sync switches](a8c59019-54ad-4f35-91e5-200da3f5deca):** the daily import of new photos runs on mobile data.",
+            "- **[Per-environment web Sentry DSN](85e20f09-7767-4dc2-8022-a036216b7d5f):** the web deploy takes the right Sentry address.",
+            "- [Docs](https://example.com/docs)",
+          ].join("\n"),
+        },
+        {
+          role: "assistant",
+          turnId: turnTwo,
+          text: [
+            "They already are. Each change has its own agent, all three started two minutes ago and are running at the same time:",
+            "",
+            "- [Gather deadline reopen + notify](fd73c894-125f-4d01-b5cb-53c1f4bbf325)",
+            "- [Split cellular sync switches](a8c59019-54ad-4f35-91e5-200da3f5deca)",
+            "- [Per-environment web Sentry DSN](85e20f09-7767-4dc2-8022-a036216b7d5f)",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    const working = agents.filter((agent) => agent.state === "working");
+    expect(working.map((agent) => agent.name)).toEqual([
+      "Gather deadline reopen + notify",
+      "Split cellular sync switches",
+      "Per-environment web Sentry DSN",
+    ]);
+    expect(working.map((agent) => agent.id)).toEqual([
+      "fd73c894-125f-4d01-b5cb-53c1f4bbf325",
+      "a8c59019-54ad-4f35-91e5-200da3f5deca",
+      "85e20f09-7767-4dc2-8022-a036216b7d5f",
+    ]);
+    expect(agents.find((agent) => agent.id === "main")?.state).toBe("done");
+    expect(agents.findIndex((agent) => agent.state === "done")).toBeGreaterThan(
+      agents.findIndex((agent) => agent.state === "working"),
+    );
+    expect(agents.some((agent) => agent.name === "Docs")).toBe(false);
+    expect(
+      agents.find((agent) => agent.name === "Gather deadline reopen + notify")?.transcript,
+    ).toContain("future deadline");
+  });
+
+  it("does not duplicate a named agent that already has a tool row", () => {
+    const agents = deriveChatAgents({
+      mainLabel: "claude-opus-5-5",
+      isWorking: false,
+      latestTurn: { turnId: turnOne, state: "completed" },
+      runningTurnId: null,
+      agentPanelModel: emptyAgentPanelModel(),
+      workLogEntries: [],
+      checkpoints: [],
+      messages: [
+        {
+          role: "assistant",
+          turnId: turnOne,
+          text: "Each change has its own agent and they are running:\n\n- [Split cellular sync switches](a8c59019-54ad-4f35-91e5-200da3f5deca)",
+        },
+      ],
+      activities: [
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:23:45.000Z",
+          payload: {
+            status: "completed",
+            title: "Task: Split cellular sync switches",
+            data: {
+              toolCallId: "call-split",
+              rawInput: {
+                _toolName: "task",
+                description: "Split cellular sync switches",
+                prompt: "Edit apps/mobile/src/sync.ts",
+              },
+              rawOutput: { isBackground: true },
+            },
+          },
+        },
+      ],
+    });
+    expect(agents.filter((agent) => agent.name === "Split cellular sync switches")).toHaveLength(1);
+    expect(agents.find((agent) => agent.name === "Split cellular sync switches")).toMatchObject({
+      id: "call-split",
+      state: "working",
+    });
+  });
+});
+
+describe("agent links", () => {
+  it("treats a bare agent id as an in-app reference, not a route", () => {
+    expect(isInlineAgentReference("fd73c894-125f-4d01-b5cb-53c1f4bbf325")).toBe(true);
+    expect(isInlineAgentReference("toolu_01R8Yk4BSaTkTpce5ooUgyRt")).toBe(true);
+    expect(isInlineAgentReference("https://example.com/docs")).toBe(false);
+    expect(isInlineAgentReference("/threads/one")).toBe(false);
+    expect(isInlineAgentReference("#section")).toBe(false);
+    expect(
+      agentMatchingReference(
+        [
+          {
+            id: "fd73c894-125f-4d01-b5cb-53c1f4bbf325",
+            name: "Gather deadline reopen + notify",
+            state: "working",
+            detail: null,
+            files: [],
+            transcript: "",
+          },
+        ],
+        { label: "Gather deadline reopen + notify" },
+      )?.id,
+    ).toBe("fd73c894-125f-4d01-b5cb-53c1f4bbf325");
   });
 });
 

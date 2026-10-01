@@ -359,6 +359,18 @@ function projectMcpToolCallData(data: Record<string, unknown>): Record<string, u
   return projectedData;
 }
 
+/** Flags a background launch still carries after the result text is gone. */
+function projectRawOutputFlags(rawOutput: Record<string, unknown>): Record<string, unknown> {
+  const flags: Record<string, unknown> = {};
+  if (rawOutput.isBackground === true) flags.isBackground = true;
+  const error = asTrimmedString(rawOutput.error);
+  if (error) {
+    const summary = summarizeToolTextOutput(error);
+    if (summary) flags.error = summary;
+  }
+  return flags;
+}
+
 function projectRawOutput(value: unknown): Record<string, unknown> | undefined {
   const direct = asTrimmedString(value);
   if (direct) {
@@ -370,33 +382,69 @@ function projectRawOutput(value: unknown): Record<string, unknown> | undefined {
   if (!rawOutput) {
     return undefined;
   }
+  const flags = projectRawOutputFlags(rawOutput);
 
   if (typeof rawOutput.totalFiles === "number" && Number.isFinite(rawOutput.totalFiles)) {
     return {
       totalFiles: rawOutput.totalFiles,
       ...(rawOutput.truncated === true ? { truncated: true } : {}),
+      ...flags,
     };
   }
 
   const content = asTrimmedString(rawOutput.content);
   if (content) {
     const summary = summarizeToolTextOutput(content);
-    return summary ? { content: summary } : undefined;
+    return summary ? { content: summary, ...flags } : undefined;
   }
 
   const stdout = asTrimmedString(rawOutput.stdout);
   if (stdout) {
     const summary = summarizeToolTextOutput(stdout);
-    return summary ? { content: summary } : undefined;
+    return summary ? { content: summary, ...flags } : undefined;
   }
 
   const stderr = asTrimmedString(rawOutput.stderr);
   if (stderr) {
     const summary = summarizeToolTextOutput(stderr);
-    return summary ? { content: summary } : undefined;
+    return summary ? { content: summary, ...flags } : undefined;
   }
 
-  return undefined;
+  return Object.keys(flags).length > 0 ? flags : undefined;
+}
+
+const TASK_PROMPT_LIMIT = 280;
+
+function clipTaskPrompt(prompt: string): string {
+  const line =
+    prompt
+      .split("\n")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.length > 0) ?? prompt.trim();
+  if (line.length <= TASK_PROMPT_LIMIT) return line;
+  return `${line.slice(0, TASK_PROMPT_LIMIT - 1)}…`;
+}
+
+/** The few Task fields the agent strip reads. The full prompt stays in the database. */
+function projectCursorTaskInput(
+  data: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const rawInput = asRecord(data.rawInput);
+  if (!rawInput) return undefined;
+  const toolName = asTrimmedString(rawInput._toolName)?.toLowerCase();
+  if (toolName !== "task" && toolName !== "subagent") return undefined;
+  const description =
+    asTrimmedString(rawInput.description) ??
+    asTrimmedString(rawInput.task) ??
+    asTrimmedString(rawInput.name);
+  const prompt = asTrimmedString(rawInput.prompt);
+  const state = asTrimmedString(rawInput.state);
+  return {
+    _toolName: toolName,
+    ...(description ? { description } : {}),
+    ...(prompt ? { prompt: clipTaskPrompt(prompt) } : {}),
+    ...(state ? { state } : {}),
+  };
 }
 
 function projectAcpContent(value: unknown): Record<string, unknown> | undefined {
@@ -481,6 +529,10 @@ export function projectActivityPayload(
   }
   if ("toolName" in data) {
     projectedData.toolName = data.toolName;
+  }
+  const taskInput = projectCursorTaskInput(data);
+  if (taskInput) {
+    projectedData.rawInput = taskInput;
   }
 
   const rawOutput =

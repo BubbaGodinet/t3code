@@ -14,6 +14,8 @@ import { isContextMenuOpen } from "../../contextMenuFallback";
 import { cn } from "../../lib/utils";
 import { formatShortTimestamp } from "../../timestampFormat";
 import {
+  OPEN_AGENT_EVENT,
+  agentMatchingReference,
   chatOutputTitle,
   formatEditedFiles,
   outputRowPreview,
@@ -27,7 +29,7 @@ import { FocusMarkdown, SCAN_TITLE_CLASS } from "./FocusMarkdown";
 export type ChatSurfaceView = "transcript" | "outputs" | "docs";
 
 const STATE_LABEL: Record<ChatAgentState, string> = {
-  working: "Working",
+  working: "Running",
   idle: "Idle",
   done: "Done",
   stopped: "Stopped",
@@ -64,7 +66,11 @@ function AgentLine({
     <button
       type="button"
       className="flex min-w-0 items-center gap-1.5 rounded px-0.5 text-left hover:bg-accent/70"
-      onClick={() => onOpen(agent.id)}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpen(agent.id);
+      }}
     >
       <AgentDot state={agent.state} />
       <span
@@ -109,15 +115,29 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
   const workingCount = agents.filter((agent) => agent.state === "working").length;
   // Working rows stay visible. A finished parent must not be the only chip
   // while other agents are still running.
-  const compactCount = Math.max(COMPACT_AGENT_LIMIT, workingCount);
-  const shown = listOpen ? agents : agents.slice(0, compactCount);
-  const hiddenCount = agents.length - shown.length;
+  const compact =
+    workingCount > 0
+      ? agents.filter((agent) => agent.state === "working")
+      : agents.slice(0, COMPACT_AGENT_LIMIT);
+  const shown = listOpen ? agents : compact;
+  const overflow = agents.length - compact.length;
   const openStack = (agentId: string | null) => {
     if (agents.length === 0) return;
     const focus =
       agentId ?? agents.find((agent) => agent.state === "working")?.id ?? agents[0]?.id ?? null;
     setStackFocusId(focus);
   };
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ href?: string; label?: string }>).detail;
+      const agent = agentMatchingReference(agents, detail ?? {});
+      const focus =
+        agent?.id ?? agents.find((entry) => entry.state === "working")?.id ?? agents[0]?.id ?? null;
+      if (focus) setStackFocusId(focus);
+    };
+    window.addEventListener(OPEN_AGENT_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_AGENT_EVENT, onOpen);
+  }, [agents]);
   const options: ReadonlyArray<ChatSurfaceView> = docsAvailable
     ? ["transcript", "outputs", "docs"]
     : ["transcript", "outputs"];
@@ -137,22 +157,26 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
             <button
               type="button"
               className="shrink-0 font-medium text-muted-foreground hover:text-foreground"
-              onClick={() => openStack(null)}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openStack(null);
+              }}
             >
-              Agents{workingCount > 0 ? ` · ${workingCount} working` : ""}
+              Agents{workingCount > 0 ? ` · ${workingCount} running` : ""}
             </button>
             {shown.map((agent) => (
               <AgentLine key={agent.id} agent={agent} onOpen={openStack} />
             ))}
           </div>
-          {agents.length > compactCount ? (
+          {overflow > 0 ? (
             <button
               type="button"
               aria-expanded={listOpen}
               className="flex h-5 shrink-0 items-center gap-0.5 rounded px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={() => setListOpen((open) => !open)}
             >
-              {listOpen ? <ChevronUpIcon className="size-3" /> : `+${hiddenCount}`}
+              {listOpen ? <ChevronUpIcon className="size-3" /> : `+${overflow}`}
               {listOpen ? null : <ChevronDownIcon className="size-3" />}
             </button>
           ) : null}
@@ -245,10 +269,7 @@ function AgentStack({
     const agent = agents[stepAgentStackIndex(index, count, -depth)];
     if (agent) depths.push({ agent, depth });
   }
-  const delivery =
-    front.id === "main"
-      ? "Sends in this chat."
-      : `Sends in this chat to ${front.name}. This thread delivers it to that subagent.`;
+  const delivery = front.id === "main" ? "Sends in this chat." : `Sends to ${front.name}.`;
   return (
     <Dialog
       open
@@ -286,6 +307,18 @@ function AgentStack({
           <article
             aria-label={front.name}
             className="argus-focus-doc relative z-10 flex max-h-[88vh] flex-col overflow-hidden rounded-2xl border border-[#d4d4d8] shadow-lg"
+            onClickCapture={(event) => {
+              const target = event.target;
+              if (!(target instanceof Element)) return;
+              const link = target.closest("[data-agent-ref]");
+              if (!(link instanceof HTMLElement)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const href = link.dataset.agentRef ?? "";
+              const label = link.textContent?.trim() ?? "";
+              const agent = agentMatchingReference(agents, { href, label });
+              if (agent) onFocus(agent.id);
+            }}
           >
             <header className="flex items-start gap-2 pe-12 pb-3 ps-6 pt-6">
               <div className="min-w-0 flex-1">
