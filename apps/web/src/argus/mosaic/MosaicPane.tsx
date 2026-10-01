@@ -37,6 +37,7 @@ import {
   type MosaicCompany,
   type MosaicPane,
 } from "./mosaicStore";
+import { groupRecentThreads } from "./recentThreads";
 import {
   BrowserSurfaceView,
   DeviceSurfaceView,
@@ -45,8 +46,6 @@ import {
 } from "./SurfacePanes";
 import { TerminalPane } from "./TerminalPane";
 import { useMosaicActions } from "./useMosaicActions";
-
-const RECENT_THREAD_LIMIT = 12;
 
 function tint(color: string, percent: number): string {
   return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
@@ -98,24 +97,22 @@ function CompanyMenu({ pane, company }: { pane: MosaicPane; company: MosaicCompa
 /** Empty chat pane: start a chat in the pane's company or open a recent thread. */
 function ChatPanePicker({ pane, company }: { pane: MosaicPane; company: MosaicCompany | null }) {
   const threads = useThreadShells();
+  const companies = useMosaicStore((state) => state.companies);
+  const panes = useMosaicStore((state) => state.panes);
   const handleNewThread = useNewThreadHandler();
   const { openTarget } = useMosaicActions();
   const openCompanies = useCompaniesDialog((state) => state.setOpen);
   const companyProjectRef = company?.projectRef ?? null;
-  const recent = useMemo(
-    () =>
-      threads
-        .filter(
+  const sections = useMemo(() => {
+    const visible = companyProjectRef
+      ? threads.filter(
           (thread) =>
-            thread.archivedAt === null &&
-            (!companyProjectRef ||
-              (thread.environmentId === companyProjectRef.environmentId &&
-                thread.projectId === companyProjectRef.projectId)),
+            thread.environmentId === companyProjectRef.environmentId &&
+            thread.projectId === companyProjectRef.projectId,
         )
-        .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        .slice(0, RECENT_THREAD_LIMIT),
-    [companyProjectRef, threads],
-  );
+      : threads;
+    return groupRecentThreads(visible, companies, Object.values(panes));
+  }, [companies, companyProjectRef, panes, threads]);
 
   const startChat = async () => {
     if (!company?.projectRef) return;
@@ -153,24 +150,37 @@ function ChatPanePicker({ pane, company }: { pane: MosaicPane; company: MosaicCo
           </Button>
         </div>
       )}
-      {recent.length > 0 ? (
-        <div className="flex flex-col gap-0.5">
-          <div className="px-2 pb-1 text-xs text-muted-foreground">Recent threads</div>
-          {recent.map((thread) => (
-            <button
-              key={`${thread.environmentId}:${thread.id}`}
-              type="button"
-              className="truncate rounded px-2 py-1 text-left hover:bg-accent"
-              onClick={() => {
-                useMosaicStore.getState().setActivePane(pane.id);
-                openTarget({
-                  kind: "server",
-                  threadRef: { environmentId: thread.environmentId, threadId: thread.id },
-                });
-              }}
-            >
-              {thread.title}
-            </button>
+      {sections.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          {sections.map((section) => (
+            <div key={section.id} className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-1.5 px-2 pb-1 text-xs text-muted-foreground">
+                {section.company?.color ? (
+                  <span
+                    aria-hidden
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: section.company.color }}
+                  />
+                ) : null}
+                <span className="truncate">{section.company?.name ?? "Other"}</span>
+              </div>
+              {section.threads.map((thread) => (
+                <button
+                  key={`${thread.environmentId}:${thread.id}`}
+                  type="button"
+                  className="truncate rounded px-2 py-1 text-left hover:bg-accent"
+                  onClick={() => {
+                    useMosaicStore.getState().setActivePane(pane.id);
+                    openTarget({
+                      kind: "server",
+                      threadRef: { environmentId: thread.environmentId, threadId: thread.id },
+                    });
+                  }}
+                >
+                  {thread.title}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       ) : null}
