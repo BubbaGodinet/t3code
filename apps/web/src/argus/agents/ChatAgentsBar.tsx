@@ -17,6 +17,7 @@ import {
   chatOutputTitle,
   formatEditedFiles,
   outputRowPreview,
+  stepAgentStackIndex,
   type ChatAgentState,
   type ChatAgentStatus,
   type ChatOutput,
@@ -49,12 +50,22 @@ function AgentDot({ state }: { state: ChatAgentState }) {
   );
 }
 
-function AgentLine({ agent }: { agent: ChatAgentStatus }) {
+function AgentLine({
+  agent,
+  onOpen,
+}: {
+  agent: ChatAgentStatus;
+  onOpen: (agentId: string) => void;
+}) {
   const edited = formatEditedFiles(agent.files);
   const detail =
     agent.detail ?? edited ?? (agent.state === "working" ? null : STATE_LABEL[agent.state]);
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    <button
+      type="button"
+      className="flex min-w-0 items-center gap-1.5 rounded px-0.5 text-left hover:bg-accent/70"
+      onClick={() => onOpen(agent.id)}
+    >
       <AgentDot state={agent.state} />
       <span
         className={cn(
@@ -66,7 +77,7 @@ function AgentLine({ agent }: { agent: ChatAgentStatus }) {
       </span>
       {detail ? <span className="min-w-0 truncate text-muted-foreground">{detail}</span> : null}
       <span className="sr-only">{STATE_LABEL[agent.state]}</span>
-    </div>
+    </button>
   );
 }
 
@@ -84,17 +95,29 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
   docsAvailable,
   view,
   onViewChange,
+  onFollowUp,
 }: {
   agents: ReadonlyArray<ChatAgentStatus>;
   outputCount: number;
   docsAvailable: boolean;
   view: ChatSurfaceView;
   onViewChange: (view: ChatSurfaceView) => void;
+  onFollowUp?: (agent: ChatAgentStatus, text: string) => void;
 }) {
   const [listOpen, setListOpen] = useState(false);
+  const [stackFocusId, setStackFocusId] = useState<string | null>(null);
   const workingCount = agents.filter((agent) => agent.state === "working").length;
-  const shown = listOpen ? agents : agents.slice(0, COMPACT_AGENT_LIMIT);
+  // Working rows stay visible. A finished parent must not be the only chip
+  // while other agents are still running.
+  const compactCount = Math.max(COMPACT_AGENT_LIMIT, workingCount);
+  const shown = listOpen ? agents : agents.slice(0, compactCount);
   const hiddenCount = agents.length - shown.length;
+  const openStack = (agentId: string | null) => {
+    if (agents.length === 0) return;
+    const focus =
+      agentId ?? agents.find((agent) => agent.state === "working")?.id ?? agents[0]?.id ?? null;
+    setStackFocusId(focus);
+  };
   const options: ReadonlyArray<ChatSurfaceView> = docsAvailable
     ? ["transcript", "outputs", "docs"]
     : ["transcript", "outputs"];
@@ -111,14 +134,18 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
               listOpen ? "flex-col" : "flex-row items-center overflow-hidden",
             )}
           >
-            <span className="shrink-0 font-medium text-muted-foreground">
+            <button
+              type="button"
+              className="shrink-0 font-medium text-muted-foreground hover:text-foreground"
+              onClick={() => openStack(null)}
+            >
               Agents{workingCount > 0 ? ` · ${workingCount} working` : ""}
-            </span>
+            </button>
             {shown.map((agent) => (
-              <AgentLine key={agent.id} agent={agent} />
+              <AgentLine key={agent.id} agent={agent} onOpen={openStack} />
             ))}
           </div>
-          {agents.length > COMPACT_AGENT_LIMIT ? (
+          {agents.length > compactCount ? (
             <button
               type="button"
               aria-expanded={listOpen}
@@ -130,6 +157,15 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
             </button>
           ) : null}
         </div>
+      ) : null}
+      {stackFocusId !== null ? (
+        <AgentStack
+          agents={agents}
+          focusId={stackFocusId}
+          onFocus={setStackFocusId}
+          onClose={() => setStackFocusId(null)}
+          {...(onFollowUp ? { onFollowUp } : {})}
+        />
       ) : null}
       <div
         role="tablist"
@@ -161,6 +197,150 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
     </div>
   );
 });
+
+const PEEK_LIMIT = 4;
+const PEEK_X = 14;
+const PEEK_Y = 12;
+
+function AgentStack({
+  agents,
+  focusId,
+  onFocus,
+  onClose,
+  onFollowUp,
+}: {
+  agents: ReadonlyArray<ChatAgentStatus>;
+  focusId: string;
+  onFocus: (agentId: string) => void;
+  onClose: () => void;
+  onFollowUp?: (agent: ChatAgentStatus, text: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const index = Math.max(
+    0,
+    agents.findIndex((agent) => agent.id === focusId),
+  );
+  const count = agents.length;
+  const front = agents[index] ?? agents[0];
+  useEffect(() => {
+    if (!front) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isContextMenuOpen()) return;
+      const target = event.target;
+      if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (count < 2) return;
+      event.preventDefault();
+      const next = stepAgentStackIndex(index, count, event.key === "ArrowRight" ? 1 : -1);
+      const agent = agents[next];
+      if (agent) onFocus(agent.id);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [agents, count, front, index, onFocus]);
+  if (!front) return null;
+  const depths: Array<{ agent: ChatAgentStatus; depth: number }> = [];
+  const peekCount = Math.min(count - 1, PEEK_LIMIT);
+  for (let depth = peekCount; depth >= 1; depth -= 1) {
+    const agent = agents[stepAgentStackIndex(index, count, -depth)];
+    if (agent) depths.push({ agent, depth });
+  }
+  const delivery =
+    front.id === "main"
+      ? "Sends in this chat."
+      : `Sends in this chat to ${front.name}. This thread delivers it to that subagent.`;
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogPopup
+        {...composerFloatingLayerProps}
+        data-argus-focus-doc=""
+        bottomStickOnMobile={false}
+        showCloseButton
+        variant="media"
+        backdropClassName="z-[60] bg-black/60! backdrop-blur-md!"
+        viewportClassName="z-[60] px-4 py-8"
+        className="w-full max-w-4xl border-0 bg-transparent p-0 shadow-none"
+      >
+        <div
+          className="relative"
+          style={{ marginTop: peekCount * PEEK_Y, marginRight: peekCount * PEEK_X }}
+        >
+          {depths.map(({ agent, depth }) => (
+            <button
+              key={agent.id}
+              type="button"
+              aria-label={agent.name}
+              className="argus-focus-doc absolute inset-x-0 top-0 h-16 rounded-2xl border border-[#d4d4d8] shadow-md"
+              style={{
+                transform: `translate(${depth * PEEK_X}px, ${-depth * PEEK_Y}px)`,
+                zIndex: 10 - depth,
+              }}
+              onClick={() => onFocus(agent.id)}
+            />
+          ))}
+          <article
+            aria-label={front.name}
+            className="argus-focus-doc relative z-10 flex max-h-[88vh] flex-col overflow-hidden rounded-2xl border border-[#d4d4d8] shadow-lg"
+          >
+            <header className="flex items-start gap-2 pe-12 pb-3 ps-6 pt-6">
+              <div className="min-w-0 flex-1">
+                <h2 className={SCAN_TITLE_CLASS}>{front.name}</h2>
+                <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-[#3f3f46]">
+                  <AgentDot state={front.state} />
+                  <span>{STATE_LABEL[front.state]}</span>
+                  {front.detail ? <span className="min-w-0 truncate">{front.detail}</span> : null}
+                  {count > 1 ? (
+                    <span className="ms-auto shrink-0">Left and right to switch</span>
+                  ) : null}
+                </div>
+              </div>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+              {front.transcript ? (
+                <FocusMarkdown text={front.transcript} />
+              ) : (
+                <p className="text-sm text-[#3f3f46]">No output yet.</p>
+              )}
+            </div>
+            {onFollowUp ? (
+              <form
+                className="flex flex-col gap-2 border-t border-[#d4d4d8] px-6 py-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const text = draft.trim();
+                  if (!text) return;
+                  onFollowUp(front, text);
+                  setDraft("");
+                }}
+              >
+                <p className="text-xs text-[#3f3f46]">{delivery}</p>
+                <textarea
+                  value={draft}
+                  rows={3}
+                  placeholder={`Message ${front.name}`}
+                  className="w-full resize-none rounded-lg border border-[#d4d4d8] bg-white px-3 py-2 text-sm text-[#0a0a0a] outline-none"
+                  onChange={(event) => setDraft(event.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="self-end rounded-md bg-[#18181b] px-3 py-1.5 text-sm text-white disabled:opacity-40"
+                  disabled={draft.trim().length === 0}
+                >
+                  Send
+                </button>
+              </form>
+            ) : null}
+          </article>
+        </div>
+      </DialogPopup>
+    </Dialog>
+  );
+}
 
 /** Focus that belongs to a menu, dialog, or the composer keeps its own Escape. */
 function escapeBelongsElsewhere(): boolean {

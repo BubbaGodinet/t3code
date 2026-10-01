@@ -165,6 +165,10 @@ const CURSOR_ACP_MODEL_DISCOVERY_FAILED_MESSAGE = [
 export const CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES = {
   _meta: {
     parameterizedModelPicker: true,
+    // Cursor withholds subagent_spawned / child session updates until the
+    // client advertises this. Without it a Task tool returns isBackground
+    // and the parent turn ends while the children are still running.
+    subagents: true,
   },
 } satisfies NonNullable<EffectAcpSchema.InitializeRequest["clientCapabilities"]>;
 

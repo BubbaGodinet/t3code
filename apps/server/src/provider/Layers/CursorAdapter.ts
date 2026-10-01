@@ -17,6 +17,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   RuntimeRequestId,
+  RuntimeTaskId,
   type RuntimeMode,
   type ThreadId,
   TurnId,
@@ -67,6 +68,7 @@ import {
 } from "../acp/AcpRuntimeModel.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { applyCursorAcpModelSelection, makeCursorAcpRuntime } from "../acp/CursorAcpSupport.ts";
+import { cursorSubagentTaskDraft } from "../acp/CursorSubagents.ts";
 import { CursorTransportFailure } from "../acp/CursorTransportFailure.ts";
 import {
   CursorAskQuestionRequest,
@@ -876,6 +878,62 @@ export function makeCursorAdapter(
                         rawPayload: event.rawPayload,
                       }),
                     );
+                    const subagent = cursorSubagentTaskDraft(event.toolCall);
+                    if (subagent) {
+                      const taskId = RuntimeTaskId.make(subagent.taskId);
+                      const linkage = {
+                        taskId,
+                        taskType: "subagent" as const,
+                        title: subagent.title,
+                        timelineBypass: true as const,
+                        toolUseId: subagent.taskId,
+                      };
+                      if (subagent.phase === "working") {
+                        yield* offerRuntimeEvent({
+                          type: "task.started",
+                          ...(yield* makeEventStamp()),
+                          provider: PROVIDER,
+                          threadId: ctx.threadId,
+                          turnId: ctx.activeTurnId,
+                          payload: {
+                            ...linkage,
+                            description: subagent.title,
+                          },
+                        });
+                        if (subagent.summary) {
+                          yield* offerRuntimeEvent({
+                            type: "task.progress",
+                            ...(yield* makeEventStamp()),
+                            provider: PROVIDER,
+                            threadId: ctx.threadId,
+                            turnId: ctx.activeTurnId,
+                            payload: {
+                              ...linkage,
+                              description: subagent.title,
+                              summary: subagent.summary,
+                            },
+                          });
+                        }
+                      } else {
+                        yield* offerRuntimeEvent({
+                          type: "task.completed",
+                          ...(yield* makeEventStamp()),
+                          provider: PROVIDER,
+                          threadId: ctx.threadId,
+                          turnId: ctx.activeTurnId,
+                          payload: {
+                            ...linkage,
+                            status:
+                              subagent.phase === "failed"
+                                ? "failed"
+                                : subagent.phase === "stopped"
+                                  ? "stopped"
+                                  : "completed",
+                            ...(subagent.summary ? { summary: subagent.summary } : {}),
+                          },
+                        });
+                      }
+                    }
                     return;
                   case "ThoughtDelta":
                     // Thoughts are narration, not the reply: they stay out of

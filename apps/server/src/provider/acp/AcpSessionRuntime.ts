@@ -24,6 +24,11 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./AcpStderr.ts";
 import {
+  absorbCursorChildLink,
+  emptyCursorChildSessions,
+  projectCursorChildUpdate,
+} from "./CursorSubagents.ts";
+import {
   collectSessionConfigOptionValues,
   decideToolCallUpdateEmission,
   extractModelConfigId,
@@ -529,6 +534,7 @@ export const make = (
         assistantItemRuntimeId,
         params: notification,
       });
+    const cursorChildrenRef = yield* Ref.make(emptyCursorChildSessions());
 
     yield* acp.handleSessionUpdate((notification) =>
       notificationSemaphore.withPermit(
@@ -570,14 +576,42 @@ export const make = (
             }
             return;
           }
-          // One runtime projects one root ACP session. Child-session updates need
-          // explicit lineage routing and must never be flattened into this stream.
-          if (
-            startState._tag !== "Started" ||
-            notification.sessionId !== startState.result.sessionId
-          ) {
+          // One runtime projects one root ACP session. Cursor child sessions are
+          // the exception: their updates are folded onto the launch tool instead
+          // of becoming parent replies.
+          if (startState._tag !== "Started") {
             return;
           }
+          if (notification.sessionId !== startState.result.sessionId) {
+            const children = yield* Ref.get(cursorChildrenRef);
+            const projected = projectCursorChildUpdate(
+              children,
+              notification.sessionId,
+              notification.update,
+            );
+            if (!projected) return;
+            yield* Ref.set(cursorChildrenRef, projected.state);
+            yield* processSessionUpdate({
+              sessionId: startState.result.sessionId,
+              update: {
+                sessionUpdate: "tool_call_update",
+                toolCallId: projected.toolCallId,
+                title: projected.title,
+                status: "in_progress",
+                kind: "other",
+                rawInput: {
+                  _toolName: "subagent",
+                  subagentSessionId: notification.sessionId,
+                  linkedToolCallId: projected.toolCallId,
+                },
+                rawOutput: { transcript: projected.transcript },
+              },
+            });
+            return;
+          }
+          yield* Ref.update(cursorChildrenRef, (children) =>
+            absorbCursorChildLink(children, notification.update),
+          );
           if (
             !(yield* Ref.get(assistantUpdatesOpenRef)) &&
             (notification.update.sessionUpdate === "agent_message_chunk" ||

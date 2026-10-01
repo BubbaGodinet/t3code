@@ -492,7 +492,13 @@ import {
   type ChatSurfaceView,
 } from "../argus/agents/ChatAgentsBar";
 import { ChatDocsList } from "../argus/agents/ChatDocsList";
-import { deriveChatAgents, deriveChatOutputs, type ChatOutput } from "../argus/agents/chatAgents";
+import {
+  deriveChatAgents,
+  deriveChatOutputs,
+  formatAgentFollowUp,
+  type ChatAgentStatus,
+  type ChatOutput,
+} from "../argus/agents/chatAgents";
 import { useChatOutputsStore } from "../argus/agents/chatOutputsStore";
 import { useChatPane } from "../argus/mosaic/chatPaneContext";
 import { MosaicEnterButton } from "../argus/mosaic/MosaicEnterButton";
@@ -9522,17 +9528,100 @@ export default function ChatView(props: ChatViewProps) {
             agentPanelModel,
             workLogEntries,
             checkpoints: threadCheckpoints,
+            activities: threadActivities,
+            ...(activeThread ? { messages: activeThread.messages } : {}),
           })
         : [],
     [
       activeLatestTurn,
       activeRunningTurnId,
+      activeThread?.messages,
       agentPanelModel,
       agentsMainLabel,
       isServerThread,
       isWorking,
+      threadActivities,
       threadCheckpoints,
       workLogEntries,
+    ],
+  );
+  const sendAgentFollowUp = useCallback(
+    async (agent: ChatAgentStatus, text: string) => {
+      if (!activeThread || isSendBusy) return;
+      const modelSelection = activeThread.modelSelection;
+      if (!modelSelection) return;
+      const followUp = formatAgentFollowUp(agent, text);
+      if (!followUp.text) return;
+      const threadId = activeThread.id;
+      const messageId = newMessageId();
+      const createdAt = new Date().toISOString();
+      beginLocalDispatch();
+      setThreadError(threadId, null);
+      setOptimisticUserMessages((messages) => [
+        ...messages,
+        {
+          id: messageId,
+          role: "user",
+          text: followUp.text,
+          turnId: null,
+          createdAt,
+          updatedAt: createdAt,
+          streaming: false,
+        },
+      ]);
+      scrollToEnd();
+      const settingsResult = await persistThreadSettingsForNextTurn({
+        threadId,
+        createdAt,
+        modelSelection,
+        runtimeMode,
+        interactionMode,
+      });
+      const result =
+        settingsResult._tag === "Failure"
+          ? settingsResult
+          : await startThreadTurn({
+              environmentId,
+              input: {
+                threadId,
+                message: {
+                  messageId,
+                  role: "user",
+                  text: followUp.text,
+                  attachments: [],
+                },
+                modelSelection,
+                runtimeMode,
+                interactionMode,
+                createdAt,
+              },
+            });
+      if (result._tag === "Failure") {
+        setOptimisticUserMessages((messages) =>
+          messages.filter((message) => message.id !== messageId),
+        );
+        resetLocalDispatch();
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          setThreadError(
+            threadId,
+            error instanceof Error ? error.message : "Failed to message that agent.",
+          );
+        }
+      }
+    },
+    [
+      activeThread,
+      beginLocalDispatch,
+      environmentId,
+      interactionMode,
+      isSendBusy,
+      persistThreadSettingsForNextTurn,
+      resetLocalDispatch,
+      runtimeMode,
+      scrollToEnd,
+      setThreadError,
+      startThreadTurn,
     ],
   );
   const unsettledTurnId = deriveUnsettledTurnId(activeLatestTurn, activeRunningTurnId);
@@ -10148,6 +10237,9 @@ export default function ChatView(props: ChatViewProps) {
                       docsAvailable={docsCwd !== undefined}
                       view={chatSurfaceView}
                       onViewChange={onChatSurfaceViewChange}
+                      onFollowUp={(agent, text) => {
+                        void sendAgentFollowUp(agent, text);
+                      }}
                     />
                   </div>
                 ) : null}

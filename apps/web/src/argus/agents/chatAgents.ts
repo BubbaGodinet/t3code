@@ -19,6 +19,15 @@ export interface ChatAgentStatus {
   /** What a working agent is doing right now, when the provider says. */
   readonly detail: string | null;
   readonly files: ReadonlyArray<string>;
+  /** Assignment plus whatever output the provider has stored so far. */
+  readonly transcript: string;
+}
+
+/** A thread activity the agent reader can see. Tool rows carry Cursor's Task payload. */
+export interface ChatAgentActivity {
+  readonly kind: string;
+  readonly createdAt?: string;
+  readonly payload: unknown;
 }
 
 export interface ChatOutputFile {
@@ -81,9 +90,259 @@ function reportedSubagents(model: AgentPanelModel): RuntimeSubagent[] {
   return agents;
 }
 
+const STATE_RANK: Record<ChatAgentState, number> = {
+  working: 0,
+  idle: 1,
+  failed: 2,
+  stopped: 3,
+  done: 4,
+};
+
+/** Working agents first. Order within a state stays as discovered. */
+export function orderChatAgents(agents: ReadonlyArray<ChatAgentStatus>): ChatAgentStatus[] {
+  return agents
+    .map((agent, index) => ({ agent, index }))
+    .sort(
+      (left, right) =>
+        STATE_RANK[left.agent.state] - STATE_RANK[right.agent.state] || left.index - right.index,
+    )
+    .map(({ agent }) => agent);
+}
+
+/** Move through a stack by `direction` cards. Both ends wrap. */
+export function stepAgentStackIndex(index: number, count: number, direction: number): number {
+  if (count <= 0) return 0;
+  return (((index + direction) % count) + count) % count;
+}
+
 /**
- * The chat's agents as the provider reports them: the main turn plus any
- * subagents. A provider with a single session yields a single row.
+ * A follow-up to a subagent goes out on this chat, addressed to that agent.
+ * The parent turn is the only channel Cursor gives us.
+ */
+export function formatAgentFollowUp(
+  agent: Pick<ChatAgentStatus, "id" | "name">,
+  text: string,
+): { readonly text: string; readonly viaParentThread: boolean } {
+  const body = text.trim();
+  if (agent.id === "main") return { text: body, viaParentThread: false };
+  return {
+    text: `Follow up for subagent "${agent.name}" (${agent.id}):\n\n${body}`,
+    viaParentThread: true,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function asText(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+/** Cursor tool ids arrive as `call-…\\nfc_…`. The call id is the stable agent id. */
+export function cursorAgentId(toolCallId: string): string {
+  const first = toolCallId.split("\n")[0]?.trim() ?? "";
+  return first || toolCallId.trim();
+}
+
+function assistantTranscript(
+  messages: ReadonlyArray<Pick<ChatMessage, "role" | "text" | "turnId">> | undefined,
+  turnId: string | null,
+): string {
+  if (!messages || turnId === null) return "";
+  return messages
+    .filter((message) => message.role === "assistant" && message.turnId === turnId)
+    .map((message) => message.text.trim())
+    .filter((text) => text.length > 0)
+    .join("\n\n");
+}
+
+function subagentTranscript(agent: RuntimeSubagent): string {
+  return [agent.progress, agent.result, agent.error]
+    .map((part) => part?.trim() ?? "")
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+}
+
+interface CursorTaskAccum {
+  id: string;
+  name: string;
+  prompt: string;
+  transcript: string;
+  files: string[];
+  state: ChatAgentState;
+  detail: string | null;
+}
+
+function taskTitle(title: string | null, rawInput: Record<string, unknown> | null): string | null {
+  const description =
+    asText(rawInput?.description) ?? asText(rawInput?.task) ?? asText(rawInput?.name);
+  if (description) return description;
+  if (!title) return null;
+  return title.replace(/^Task:\s*/i, "").trim() || null;
+}
+
+function isCursorAgentTool(
+  rawInput: Record<string, unknown> | null,
+  rawOutput: Record<string, unknown> | null,
+  title: string | null,
+): boolean {
+  const toolName = asText(rawInput?._toolName)?.toLowerCase();
+  if (toolName === "task" || toolName === "subagent") return true;
+  return rawOutput?.isBackground === true && (title?.startsWith("Task:") ?? false);
+}
+
+function contentText(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const parts: string[] = [];
+  for (const entry of value) {
+    const record = asRecord(entry);
+    const nested = asRecord(record?.content);
+    const text = asText(nested?.text) ?? asText(record?.text);
+    if (text) parts.push(text);
+  }
+  return parts.length > 0 ? parts.join("\n") : null;
+}
+
+function outputText(rawOutput: Record<string, unknown> | null): string | null {
+  if (!rawOutput) return null;
+  return (
+    asText(rawOutput.transcript) ??
+    asText(rawOutput.content) ??
+    asText(rawOutput.result) ??
+    contentText(rawOutput.content)
+  );
+}
+
+function locationPaths(data: Record<string, unknown> | null): string[] {
+  const locations = data?.locations;
+  if (!Array.isArray(locations)) return [];
+  const paths: string[] = [];
+  for (const location of locations) {
+    const path = asText(asRecord(location)?.path);
+    if (path && !paths.includes(path)) paths.push(path);
+  }
+  return paths;
+}
+
+function clipLine(value: string): string {
+  const line =
+    value
+      .split("\n")
+      .find((entry) => entry.trim().length > 0)
+      ?.trim() ?? value.trim();
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+}
+
+function workingDetail(task: CursorTaskAccum): string | null {
+  const file = task.files.at(-1);
+  if (file) return basenameOfPath(file);
+  const promptLine = task.prompt
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && line !== task.name && !line.startsWith("#"));
+  if (promptLine) return clipLine(promptLine);
+  const transcriptLine = task.transcript
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && line !== task.name && line !== task.prompt);
+  if (transcriptLine) return clipLine(transcriptLine);
+  return "Running";
+}
+
+/**
+ * Cursor launches subagents as Task tools that complete at once with
+ * `{ isBackground: true }`. The child keeps running after the parent turn
+ * is done. Those rows are already stored; this is the reader for them.
+ */
+function cursorTaskAgents(
+  activities: ReadonlyArray<ChatAgentActivity> | undefined,
+): ChatAgentStatus[] {
+  if (!activities || activities.length === 0) return [];
+  const tasks = new Map<string, CursorTaskAccum>();
+  const ordered = [...activities].sort((left, right) =>
+    (left.createdAt ?? "") < (right.createdAt ?? "") ? -1 : 1,
+  );
+  for (const activity of ordered) {
+    if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") continue;
+    const payload = asRecord(activity.payload);
+    const data = asRecord(payload?.data) ?? payload;
+    const rawInput = asRecord(data?.rawInput);
+    const rawOutput = asRecord(data?.rawOutput);
+    const title = asText(payload?.title) ?? asText(data?.title);
+    if (!isCursorAgentTool(rawInput, rawOutput, title)) continue;
+    const rawId =
+      asText(rawInput?.linkedToolCallId) ?? asText(data?.toolCallId) ?? asText(payload?.toolCallId);
+    if (!rawId) continue;
+    const id = cursorAgentId(rawId);
+    const task = tasks.get(id) ?? {
+      id,
+      name: id,
+      prompt: "",
+      transcript: "",
+      files: [],
+      state: "working" as const,
+      detail: null,
+    };
+    const name = taskTitle(title, rawInput);
+    if (name && (task.name === task.id || name.length > task.name.length)) task.name = name;
+    const prompt = asText(rawInput?.prompt);
+    if (prompt && prompt.length > task.prompt.length) task.prompt = prompt;
+    const written = outputText(rawOutput) ?? contentText(data?.content);
+    if (written && written.length >= task.transcript.length) task.transcript = written;
+    for (const path of locationPaths(data)) {
+      if (!task.files.includes(path)) task.files.push(path);
+    }
+    const status = asText(payload?.status) ?? asText(data?.status);
+    const childState = asText(rawInput?.state);
+    const runningError =
+      asText(rawOutput?.error)?.toLowerCase().includes("currently running") ?? false;
+    const background = rawOutput?.isBackground === true;
+    if (childState === "failed" || status === "failed") task.state = "failed";
+    else if (childState === "cancelled" || childState === "disconnected") task.state = "stopped";
+    else if (childState === "completed") task.state = "done";
+    else if (background) task.state = "working";
+    else if (runningError) task.state = "failed";
+    else if (status === "completed") task.state = "done";
+    else if (status === "in_progress" || status === "inProgress" || status === "pending") {
+      task.state = "working";
+    }
+    tasks.set(id, task);
+  }
+  return [...tasks.values()].map((task) => {
+    const transcript = [task.prompt, task.transcript]
+      .filter((part, index, all) => part.length > 0 && all.indexOf(part) === index)
+      .join("\n\n");
+    return {
+      id: task.id,
+      name: task.name,
+      state: task.state,
+      detail: task.state === "working" ? workingDetail(task) : null,
+      files: task.files,
+      transcript,
+    };
+  });
+}
+
+function mergeAgent(current: ChatAgentStatus, incoming: ChatAgentStatus): ChatAgentStatus {
+  const working = current.state === "working" || incoming.state === "working";
+  return {
+    id: current.id,
+    name: current.name === current.id ? incoming.name : current.name,
+    state: working ? "working" : current.state,
+    detail: current.detail ?? incoming.detail,
+    files: current.files.length > 0 ? current.files : incoming.files,
+    transcript:
+      incoming.transcript.length > current.transcript.length
+        ? incoming.transcript
+        : current.transcript,
+  };
+}
+
+/**
+ * The chat's agents: the main turn, provider-reported subagents, and Cursor
+ * Task tools that are still in flight after their launch row says completed.
+ * A provider with a single session yields a single row. Working agents sort first.
  */
 export function deriveChatAgents(
   input: TurnFilesSource & {
@@ -92,6 +351,8 @@ export function deriveChatAgents(
     readonly latestTurn: LatestTurn | null;
     readonly runningTurnId: TurnId | null;
     readonly agentPanelModel: AgentPanelModel;
+    readonly messages?: ReadonlyArray<Pick<ChatMessage, "role" | "text" | "turnId">>;
+    readonly activities?: ReadonlyArray<ChatAgentActivity>;
   },
 ): ChatAgentStatus[] {
   const agents: ChatAgentStatus[] = [];
@@ -109,11 +370,14 @@ export function deriveChatAgents(
       state: input.isWorking ? "working" : settledState,
       detail: null,
       files: turnId === null ? [] : turnFiles(input, turnId).map((file) => file.path),
+      transcript: assistantTranscript(input.messages, turnId),
     });
   }
+  const byId = new Map<string, ChatAgentStatus>();
+  for (const agent of agents) byId.set(agent.id, agent);
   for (const agent of reportedSubagents(input.agentPanelModel)) {
     const state = subagentState(agent.status);
-    agents.push({
+    const row: ChatAgentStatus = {
       id: agent.id,
       name: agent.title,
       state,
@@ -122,9 +386,27 @@ export function deriveChatAgents(
           ? ((agent.progress?.split("\n")[0]?.trim() || agent.lastToolName) ?? null)
           : null,
       files: [],
-    });
+      transcript: subagentTranscript(agent),
+    };
+    const existing = byId.get(row.id);
+    byId.set(row.id, existing ? mergeAgent(existing, row) : row);
   }
-  return agents;
+  for (const agent of cursorTaskAgents(input.activities)) {
+    const existing = byId.get(agent.id);
+    // The stored Task tool is the authority for Cursor children: a background
+    // launch stays working after the parent turn is marked done.
+    byId.set(
+      agent.id,
+      existing
+        ? {
+            ...mergeAgent(existing, agent),
+            state: agent.state,
+            detail: agent.detail ?? existing.detail,
+          }
+        : agent,
+    );
+  }
+  return orderChatAgents([...byId.values()]);
 }
 
 const EDITED_FILES_SHOWN = 3;

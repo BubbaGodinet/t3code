@@ -12,10 +12,12 @@ import {
   chatOutputsSignature,
   deriveChatAgents,
   deriveChatOutputs,
+  formatAgentFollowUp,
   formatEditedFiles,
   mergeChatOutputs,
   outputPreviewText,
   outputRowPreview,
+  stepAgentStackIndex,
 } from "./chatAgents";
 
 const turnOne = TurnId.make("turn-1");
@@ -80,6 +82,7 @@ describe("deriveChatAgents", () => {
         state: "working",
         detail: null,
         files: ["src/a.ts", "src/b.ts"],
+        transcript: "",
       },
     ]);
     expect(formatEditedFiles(agents[0]!.files)).toBe("Edited a.ts, b.ts");
@@ -102,10 +105,125 @@ describe("deriveChatAgents", () => {
     });
 
     expect(agents.map((agent) => [agent.id, agent.state, agent.detail])).toEqual([
-      ["main", "stopped", null],
       ["explorer", "working", "Reading routes"],
+      ["main", "stopped", null],
       ["reviewer", "done", null],
     ]);
+  });
+
+  it("keeps working Cursor tasks ahead of a parent that is already done", () => {
+    const task = (id: string, description: string, prompt: string) => ({
+      kind: "tool.completed",
+      createdAt: "2026-10-01T15:23:45.000Z",
+      payload: {
+        status: "completed",
+        title: `Task: ${description}`,
+        data: {
+          toolCallId: id,
+          kind: "other",
+          rawInput: { _toolName: "task", description, prompt },
+          rawOutput: { durationMs: 42, isBackground: true },
+        },
+      },
+    });
+    const agents = deriveChatAgents({
+      mainLabel: "claude-opus-5-5",
+      isWorking: false,
+      latestTurn: { turnId: turnOne, state: "completed" },
+      runningTurnId: null,
+      agentPanelModel: emptyAgentPanelModel(),
+      workLogEntries: [],
+      checkpoints: [],
+      activities: [
+        task("call-split", "Split cellular sync switches", "Edit apps/mobile/src/sync.ts"),
+        task(
+          "call-dsn",
+          "Per-environment web Sentry DSN",
+          "Wire the DSN in infra/scripts/deploy-web.sh",
+        ),
+        task(
+          "call-deadline",
+          "Gather deadline reopen + notify",
+          "Read apps/mobile/src/deadline.ts",
+        ),
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:23:50.000Z",
+          payload: {
+            status: "completed",
+            title: "Task: Stop RN-X work",
+            data: {
+              toolCallId: "call-stop",
+              kind: "other",
+              rawInput: { _toolName: "task", description: "Stop RN-X work", prompt: "Stop it" },
+              rawOutput: {
+                error:
+                  "Sub-agent is currently running. You may send the follow-up message when it has completed.",
+              },
+            },
+          },
+        },
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:23:40.000Z",
+          payload: {
+            status: "completed",
+            title: "MCP: tool",
+            data: {
+              toolCallId: "call-mcp",
+              kind: "other",
+              rawInput: { _toolName: "mcp", name: "list_thread_pull_requests" },
+            },
+          },
+        },
+      ],
+    });
+
+    const working = agents.filter((agent) => agent.state === "working");
+    expect(working.map((agent) => agent.name)).toEqual([
+      "Split cellular sync switches",
+      "Per-environment web Sentry DSN",
+      "Gather deadline reopen + notify",
+    ]);
+    expect(working.map((agent) => agent.detail)).toEqual([
+      "Edit apps/mobile/src/sync.ts",
+      "Wire the DSN in infra/scripts/deploy-web.sh",
+      "Read apps/mobile/src/deadline.ts",
+    ]);
+    expect(
+      agents.findIndex((agent) => agent.id === "main" && agent.state === "done"),
+    ).toBeGreaterThan(agents.findIndex((agent) => agent.state === "working"));
+    expect(
+      agents.some((agent) => agent.name === "Stop RN-X work" && agent.state === "working"),
+    ).toBe(false);
+    expect(agents.some((agent) => agent.id === "call-mcp")).toBe(false);
+    expect(agents.find((agent) => agent.id === "call-split")?.transcript).toContain(
+      "Edit apps/mobile/src/sync.ts",
+    );
+  });
+});
+
+describe("agent stack", () => {
+  it("wraps the focused card with the arrow keys", () => {
+    expect(stepAgentStackIndex(0, 3, -1)).toBe(2);
+    expect(stepAgentStackIndex(2, 3, 1)).toBe(0);
+    expect(stepAgentStackIndex(1, 3, 1)).toBe(2);
+    expect(stepAgentStackIndex(1, 3, -1)).toBe(0);
+  });
+
+  it("addresses a subagent follow-up on the parent thread", () => {
+    expect(
+      formatAgentFollowUp(
+        { id: "call-dsn", name: "Per-environment web Sentry DSN" },
+        "Also cover staging",
+      ),
+    ).toEqual({
+      text: 'Follow up for subagent "Per-environment web Sentry DSN" (call-dsn):\n\nAlso cover staging',
+      viaParentThread: true,
+    });
+    expect(
+      formatAgentFollowUp({ id: "main", name: "claude-opus-5-5" }, "Continue").viaParentThread,
+    ).toBe(false);
   });
 });
 
