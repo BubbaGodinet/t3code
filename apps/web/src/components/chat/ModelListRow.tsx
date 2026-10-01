@@ -13,6 +13,7 @@ import { Badge } from "../ui/badge";
 import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
+import { modelPickerRowAccountLabel } from "./modelPickerAccount";
 import { modelPickerModelKey } from "./modelPickerKeys";
 
 export const ModelListRow = memo(function ModelListRow(props: {
@@ -23,11 +24,12 @@ export const ModelListRow = memo(function ModelListRow(props: {
   /** Driver kind of the instance — used for the provider icon glyph. */
   driverKind: ProviderDriverKind;
   /**
-   * Display name to show in the secondary line (provider footer). Usually
-   * the instance's configured `displayName` so custom instances like
-   * "Codex Personal" render with their user-authored label.
+   * Instance label for the secondary line. Combined with `accountEmail` so
+   * the row names the account it will run as, not only the driver.
    */
   providerDisplayName: string;
+  /** Signed-in email from the provider probe, when T3 has one. */
+  accountEmail?: string | undefined;
   providerAccentColor?: string | undefined;
   isFavorite: boolean;
   isSelected: boolean;
@@ -42,9 +44,11 @@ export const ModelListRow = memo(function ModelListRow(props: {
   onToggleFavorite: () => void;
 }) {
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
-  const providerLabel = props.model.subProvider
-    ? `${props.providerDisplayName} · ${props.model.subProvider}`
-    : props.providerDisplayName;
+  const providerLabel = modelPickerRowAccountLabel({
+    displayName: props.providerDisplayName,
+    email: props.accountEmail,
+    subProvider: props.model.subProvider,
+  });
 
   const row = (
     <ComboboxItem

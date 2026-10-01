@@ -9,6 +9,8 @@ type ModelPickerSearchableModel = {
    * models directly instead of just the driver kind.
    */
   providerDisplayName: string;
+  /** Probe email, so a search for the signed-in address finds that account's models. */
+  accountEmail?: string;
   name: string;
   shortName?: string;
   subProvider?: string;
@@ -24,6 +26,7 @@ function getModelPickerSearchFields(model: ModelPickerSearchableModel): string[]
     ...(model.subProvider ? [normalizeSearchQuery(model.subProvider)] : []),
     normalizeSearchQuery(model.driverKind),
     normalizeSearchQuery(model.providerDisplayName),
+    ...(model.accountEmail ? [normalizeSearchQuery(model.accountEmail)] : []),
     buildModelPickerSearchText(model),
   ];
 }
@@ -46,7 +49,14 @@ function scoreModelPickerSearchToken(
 
 export function buildModelPickerSearchText(model: ModelPickerSearchableModel): string {
   return normalizeSearchQuery(
-    [model.name, model.shortName, model.subProvider, model.driverKind, model.providerDisplayName]
+    [
+      model.name,
+      model.shortName,
+      model.subProvider,
+      model.driverKind,
+      model.providerDisplayName,
+      model.accountEmail,
+    ]
       .filter((value): value is string => typeof value === "string" && value.length > 0)
       .join(" "),
   );

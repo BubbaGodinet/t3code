@@ -10,14 +10,22 @@ import {
   shouldShowInstanceBadge,
   type ProviderInstanceEntry,
 } from "../../providerInstances";
+import { modelPickerAccountLabel } from "./modelPickerAccount";
 
 /**
  * Build the hover tooltip for an instance button. Mirrors the old
  * kind-based copy but uses the entry's configured `displayName` so custom
  * instances get their user-authored name (e.g. "Codex Personal — Unavailable.").
  */
+function accountLabel(entry: ProviderInstanceEntry): string {
+  return modelPickerAccountLabel({
+    displayName: entry.displayName,
+    email: entry.snapshot.auth.email,
+  });
+}
+
 function describeUnavailableInstance(entry: ProviderInstanceEntry): string {
-  const label = entry.displayName;
+  const label = accountLabel(entry);
   if (!entry.enabled || entry.status === "disabled") {
     return `${label} — Disabled in settings.`;
   }
@@ -162,13 +170,14 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
             const showNewBadge = props.newBadgeInstanceIds?.has(entry.instanceId) ?? false;
             const showInstanceBadge = shouldShowInstanceBadge(entry, props.instanceEntries);
 
+            const label = accountLabel(entry);
             const tooltip = isUnavailable
               ? describeUnavailableInstance(entry)
               : isContextDisabled
-                ? (props.getDisabledInstanceTooltip?.(entry) ?? entry.displayName)
+                ? (props.getDisabledInstanceTooltip?.(entry) ?? label)
                 : showNewBadge
-                  ? `${entry.displayName} — New`
-                  : entry.displayName;
+                  ? `${label} — New`
+                  : label;
 
             const button = (
               <Toolbar.Button
@@ -194,8 +203,8 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
                   isUnavailable || isContextDisabled
                     ? tooltip
                     : showNewBadge
-                      ? `${entry.displayName}, new`
-                      : entry.displayName
+                      ? `${label}, new`
+                      : label
                 }
               >
                 <ProviderInstanceIcon

@@ -116,6 +116,20 @@ describe("scoreModelPickerSearch", () => {
     expect(nonFavoriteExactScore!).toBeLessThan(favoriteScore!);
   });
 
+  it("matches the signed-in email against that account's models", () => {
+    expect(
+      scoreModelPickerSearch(
+        {
+          driverKind: "claudeAgent",
+          providerDisplayName: "Motley Fool",
+          accountEmail: "me@fool.com",
+          name: "Claude Opus 5.5",
+        },
+        "fool.com",
+      ),
+    ).not.toBeNull();
+  });
+
   it("matches a custom instance's display name against its models", () => {
     expect(
       scoreModelPickerSearch(

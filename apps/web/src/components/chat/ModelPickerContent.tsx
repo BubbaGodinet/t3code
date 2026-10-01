@@ -46,6 +46,7 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { providerModelKey, sortProviderModelItems } from "../../modelOrdering";
+import { modelPickerAccountLabel } from "./modelPickerAccount";
 
 type ModelPickerItem = {
   slug: string;
@@ -56,6 +57,7 @@ type ModelPickerItem = {
   instanceId: ProviderInstanceId;
   driverKind: ProviderDriverKind;
   instanceDisplayName: string;
+  accountEmail?: string | undefined;
   instanceAccentColor?: string | undefined;
   continuationGroupKey?: string | undefined;
   isLegacy?: boolean | undefined;
@@ -386,6 +388,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           instanceId,
           driverKind: entry.driverKind,
           instanceDisplayName: entry.displayName,
+          ...(entry.snapshot.auth.email ? { accountEmail: entry.snapshot.auth.email } : {}),
           ...(entry.accentColor ? { instanceAccentColor: entry.accentColor } : {}),
           ...(entry.continuationGroupKey
             ? { continuationGroupKey: entry.continuationGroupKey }
@@ -448,6 +451,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               ...(model.subProvider ? { subProvider: model.subProvider } : {}),
               driverKind: model.driverKind,
               providerDisplayName: model.instanceDisplayName,
+              ...(model.accountEmail ? { accountEmail: model.accountEmail } : {}),
               isFavorite: favoritesSet.has(providerModelKey(model.instanceId, model.slug)),
             },
             searchQuery,
@@ -459,6 +463,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             ...(model.subProvider ? { subProvider: model.subProvider } : {}),
             driverKind: model.driverKind,
             providerDisplayName: model.instanceDisplayName,
+            ...(model.accountEmail ? { accountEmail: model.accountEmail } : {}),
           }),
         }))
         .filter(
@@ -827,7 +832,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               ? {
                   disabledInstanceIds: lockedDisabledInstanceIds,
                   getDisabledInstanceTooltip: (entry: ProviderInstanceEntry) =>
-                    `${entry.displayName} is unavailable in this thread. Start a new thread to switch providers.`,
+                    `${modelPickerAccountLabel({
+                      displayName: entry.displayName,
+                      email: entry.snapshot.auth.email,
+                    })} is unavailable in this thread. Start a new thread to switch providers.`,
                 }
               : {})}
           />
@@ -1002,6 +1010,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                         instanceId={model.instanceId}
                         driverKind={model.driverKind}
                         providerDisplayName={model.instanceDisplayName}
+                        accountEmail={model.accountEmail}
                         providerAccentColor={model.instanceAccentColor}
                         isFavorite={favoritesSet.has(
                           providerModelKey(model.instanceId, model.slug),
