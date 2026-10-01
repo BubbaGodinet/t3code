@@ -11,7 +11,7 @@ import type {
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { FolderOpenIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 
 import { AddAccountDialog } from "../../components/settings/AddAccountDialog";
@@ -39,7 +39,7 @@ import { useProjects, waitForProject } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { filesystemEnvironment } from "../../state/filesystem";
 import { projectEnvironment } from "../../state/projects";
-import { environmentServerConfigsAtom } from "../../state/server";
+import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
   companyAccountEntries,
@@ -405,6 +405,31 @@ export function CompaniesDialog() {
   const companies = useMosaicStore((state) => state.companies);
   const upsertCompany = useMosaicStore((state) => state.upsertCompany);
   const [draftName, setDraftName] = useState("");
+  const discoverAccounts = useAtomCommand(serverEnvironment.discoverProviderAccounts, {
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const discoveredKey = useRef("");
+
+  useEffect(() => {
+    if (!open) {
+      discoveredKey.current = "";
+      return;
+    }
+    const environmentIds = [
+      ...new Set(
+        companies.flatMap((company) =>
+          company.projectRef ? [company.projectRef.environmentId] : [],
+        ),
+      ),
+    ];
+    const key = environmentIds.join("\0");
+    if (discoveredKey.current === key) return;
+    discoveredKey.current = key;
+    for (const environmentId of environmentIds) {
+      void discoverAccounts({ environmentId, input: {} });
+    }
+  }, [open, companies, discoverAccounts]);
 
   const addCompany = () => {
     const name = draftName.trim();

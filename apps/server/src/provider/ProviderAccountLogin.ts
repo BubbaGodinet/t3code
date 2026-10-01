@@ -1,9 +1,13 @@
 // @effect-diagnostics nodeBuiltinImport:off
+import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
 
 import {
   defaultInstanceIdForDriver,
   ProviderAccountLoginError,
+  type DiscoverClaudeAccountsResult,
+  type ProviderAccountApiKeyInput,
+  type ProviderAccountApiKeyResult,
   type ProviderAccountLoginCodeInput,
   type ProviderAccountLoginDriver,
   type ProviderAccountLoginFlowInput,
@@ -35,6 +39,12 @@ import { expandHomePath } from "../pathExpansion.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { deriveProviderInstanceConfigMap } from "./Layers/ProviderInstanceRegistryHydration.ts";
 import { isCommandMissingCause } from "./providerSnapshot.ts";
+import {
+  CLAUDE_API_KEY_VARIABLE,
+  CLAUDE_KEYCHAIN_LOOKUP_ARGS,
+  claudeConfigDirLoggedIn,
+  discoverClaudeConfigAccounts,
+} from "./claudeAccountDiscovery.ts";
 import {
   accountLoginTarget,
   createAccountConfigDir,
@@ -79,7 +89,39 @@ export interface ProviderAccountLoginShape {
   readonly subscribe: (
     input: ProviderAccountLoginFlowInput,
   ) => Stream.Stream<ProviderAccountLoginState, ProviderAccountLoginError>;
+  /** Register Claude config directories that already have a login. */
+  readonly discover: () => Effect.Effect<DiscoverClaudeAccountsResult, ProviderAccountLoginError>;
+  /**
+   * Save a Claude API key on a new provider instance. The key is only passed
+   * to settings, where sensitive variables move into the existing secret store.
+   */
+  readonly saveClaudeApiKey: (
+    input: ProviderAccountApiKeyInput,
+  ) => Effect.Effect<ProviderAccountApiKeyResult, ProviderAccountLoginError>;
 }
+
+export interface ProviderAccountLoginOptions {
+  /**
+   * Test override. When omitted, the macOS keychain is queried for exit status
+   * only and its output is discarded.
+   */
+  readonly claudeKeychainLoggedIn?: boolean | undefined;
+}
+
+const claudeDefaultKeychainLoggedIn = Effect.fn("claudeDefaultKeychainLoggedIn")(function* () {
+  if (process.platform !== "darwin") return false;
+  const code = yield* Effect.promise(
+    () =>
+      new Promise<number>((resolve) => {
+        const child = NodeChildProcess.spawn("security", [...CLAUDE_KEYCHAIN_LOOKUP_ARGS], {
+          stdio: "ignore",
+        });
+        child.once("error", () => resolve(1));
+        child.once("close", (exitCode) => resolve(exitCode ?? 1));
+      }),
+  );
+  return code === 0;
+});
 
 interface LoginFlow {
   readonly state: SubscriptionRef.SubscriptionRef<ProviderAccountLoginState>;
@@ -98,6 +140,7 @@ const isActive = (state: ProviderAccountLoginState) =>
  */
 export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(function* (
   homeDir: string = NodeOS.homedir(),
+  options?: ProviderAccountLoginOptions,
 ) {
   const settings = yield* ServerSettingsService;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -115,11 +158,13 @@ export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(fu
   const register = Effect.fn("ProviderAccountLogin.register")(function* (input: {
     readonly instanceId: ProviderInstanceId;
     readonly instance: ProviderInstanceConfig;
+    readonly failureDetail?: string | undefined;
   }) {
     const current = yield* readSettings;
     if (Object.hasOwn(deriveProviderInstanceConfigMap(current), input.instanceId)) {
       return yield* fail(
-        `Signed in, but an account named ${input.instanceId} was added meanwhile. Add the folder in Settings › Providers.`,
+        input.failureDetail ??
+          `Signed in, but an account named ${input.instanceId} was added meanwhile. Add the folder in Settings › Providers.`,
       );
     }
     yield* settings
@@ -128,7 +173,10 @@ export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(fu
       })
       .pipe(
         Effect.mapError(() =>
-          fail("Signed in, but the account could not be saved. Add it in Settings › Providers."),
+          fail(
+            input.failureDetail ??
+              "Signed in, but the account could not be saved. Add it in Settings › Providers.",
+          ),
         ),
       );
   });
@@ -357,6 +405,109 @@ export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(fu
       requireFlow(input.flowId).pipe(Effect.map((flow) => SubscriptionRef.changes(flow.state))),
     );
 
+  const discover = Effect.fn("ProviderAccountLogin.discover")(function* () {
+    const current = yield* readSettings;
+    const defaultKeychainLoggedIn =
+      options?.claudeKeychainLoggedIn !== undefined
+        ? options.claudeKeychainLoggedIn
+        : yield* claudeDefaultKeychainLoggedIn();
+    const discovery = yield* discoverClaudeConfigAccounts({
+      homeDir,
+      instances: deriveProviderInstanceConfigMap(current),
+      defaultKeychainLoggedIn,
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.mapError(() => fail("Could not look up Claude logins on this machine.")),
+    );
+    if (Object.keys(discovery.additions).length > 0) {
+      yield* settings
+        .updateSettings({
+          providerInstances: { ...current.providerInstances, ...discovery.additions },
+        })
+        .pipe(Effect.mapError(() => fail("Could not add the signed-in Claude account.")));
+    }
+    return { accounts: discovery.accounts };
+  });
+
+  const saveClaudeApiKey = Effect.fn("ProviderAccountLogin.saveClaudeApiKey")(function* (
+    input: ProviderAccountApiKeyInput,
+  ) {
+    const apiKey = input.apiKey.trim();
+    if (apiKey.length === 0 || /\s/.test(apiKey)) {
+      return yield* fail("Enter an API key from console.anthropic.com.");
+    }
+    const target = accountLoginTarget("claudeAgent", input.label);
+    if (target === null) {
+      return yield* fail("Use at least one letter or number in the label.");
+    }
+    const current = yield* readSettings;
+    const instances = deriveProviderInstanceConfigMap(current);
+    if (Object.hasOwn(instances, target.instanceId)) {
+      return yield* fail(
+        `An account named ${target.instanceId} already exists. Use another label.`,
+      );
+    }
+    for (const [flowId, flow] of flows) {
+      const state = yield* SubscriptionRef.get(flow.state);
+      if (!isActive(state)) {
+        flows.delete(flowId);
+      } else if (state.instanceId === target.instanceId) {
+        return yield* fail(`${input.label} is already signing in.`);
+      }
+    }
+    const directory = path.join(homeDir, target.dirName);
+    const existing = yield* fileSystem.stat(directory).pipe(Effect.option);
+    let created = false;
+    if (Option.isNone(existing)) {
+      yield* fileSystem
+        .makeDirectory(directory, { mode: 0o700 })
+        .pipe(Effect.mapError(() => fail(`Could not create ~/${target.dirName}.`)));
+      created = true;
+    } else if (existing.value.type !== "Directory") {
+      return yield* fail(`~/${target.dirName} is not a folder. Use another label.`);
+    } else if (
+      yield* claudeConfigDirLoggedIn({
+        homeDir,
+        absolutePath: directory,
+        defaultKeychainLoggedIn: false,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      )
+    ) {
+      return yield* fail(
+        `${input.label} already has a Claude login in ~/${target.dirName}. Choose it from your accounts, or use another label.`,
+      );
+    }
+    const defaultConfig =
+      instances[defaultInstanceIdForDriver(ProviderDriverKind.make("claudeAgent"))]?.config;
+    const customBinaryPath = hasBinaryPath(defaultConfig) ? defaultConfig.binaryPath.trim() : "";
+    const removeCreated = created
+      ? fileSystem.remove(directory, { recursive: true }).pipe(Effect.ignore)
+      : Effect.void;
+    yield* register({
+      instanceId: target.instanceId,
+      instance: {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        enabled: true,
+        displayName: input.label.trim(),
+        config: {
+          homePath: `~/${target.dirName}`,
+          ...(customBinaryPath ? { binaryPath: customBinaryPath } : {}),
+        },
+        // Sensitive values are moved into the provider secret store by updateSettings.
+        environment: [{ name: CLAUDE_API_KEY_VARIABLE, value: apiKey, sensitive: true }],
+      },
+      failureDetail: "The API key could not be saved. Add it in Settings › Providers.",
+    }).pipe(Effect.tapError(() => removeCreated));
+    return {
+      instanceId: target.instanceId,
+      label: input.label.trim(),
+      configDir: `~/${target.dirName}`,
+    };
+  });
+
   yield* Effect.addFinalizer(() =>
     Effect.forEach(
       flows.values(),
@@ -365,7 +516,14 @@ export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(fu
     ),
   );
 
-  return { start, submitCode, cancel, subscribe } satisfies ProviderAccountLoginShape;
+  return {
+    start,
+    submitCode,
+    cancel,
+    subscribe,
+    discover,
+    saveClaudeApiKey,
+  } satisfies ProviderAccountLoginShape;
 });
 
 export class ProviderAccountLogin extends Context.Service<

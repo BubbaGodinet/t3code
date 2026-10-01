@@ -1007,6 +1007,14 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:provider:account-login-cancel",
       tag: WS_METHODS.providerAccountLoginCancel,
     }),
+    discoverProviderAccounts: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:account-login-discover",
+      tag: WS_METHODS.providerAccountLoginDiscover,
+    }),
+    saveProviderAccountApiKey: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:account-api-key",
+      tag: WS_METHODS.providerAccountLoginSaveApiKey,
+    }),
     providerInstallState: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:provider:install-state",
       tag: WS_METHODS.providerInstallSubscribe,

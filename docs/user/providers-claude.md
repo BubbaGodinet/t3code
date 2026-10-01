@@ -14,6 +14,15 @@ enter a label such as `Personal`. T3 Code creates `~/.claude_personal`, runs Cla
 login there, and adds the instance when you finish signing in. If the sign-in page
 shows a code, paste it into the dialog.
 
+**Use an API key** on that same screen connects Claude with a key from
+[console.anthropic.com](https://console.anthropic.com) instead of a Claude.ai subscription.
+Usage is billed as API usage. The key is stored as a sensitive variable on that Claude
+instance, the same place **Settings > Providers** keeps provider variables.
+
+A Claude login already on this machine shows up as an account. T3 Code checks `~/.claude`,
+other `~/.claude_*` directories, and any Claude config directory already set on a provider.
+A directory with no completed login is not shown as signed in.
+
 Keep your existing account in the default directory. On the environment's machine,
 create the second login:
 

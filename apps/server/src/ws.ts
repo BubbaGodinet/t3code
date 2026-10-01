@@ -2477,6 +2477,18 @@ const makeWsRpcLayer = (
             providerAccountLogin.subscribe(input),
             { "rpc.aggregate": "provider" },
           ),
+        [WS_METHODS.providerAccountLoginDiscover]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.providerAccountLoginDiscover,
+            providerAccountLogin.discover(),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerAccountLoginSaveApiKey]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerAccountLoginSaveApiKey,
+            providerAccountLogin.saveClaudeApiKey(input),
+            { "rpc.aggregate": "provider" },
+          ),
         [WS_METHODS.providerInstallStart]: (input) =>
           observeRpcEffect(WS_METHODS.providerInstallStart, providerInstallation.start(input), {
             "rpc.aggregate": "provider",

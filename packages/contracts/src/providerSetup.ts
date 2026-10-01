@@ -109,6 +109,38 @@ export const ProviderAccountLoginState = Schema.Struct({
 });
 export type ProviderAccountLoginState = typeof ProviderAccountLoginState.Type;
 
+/** A Claude config directory that already has a login. No credential material. */
+export const DiscoveredClaudeAccount = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  /** Folder label, e.g. `default` or `Motley Fool`. */
+  label: Schema.String,
+  /** Home-relative form, e.g. `~/.claude`. */
+  configDir: Schema.String,
+});
+export type DiscoveredClaudeAccount = typeof DiscoveredClaudeAccount.Type;
+
+export const DiscoverClaudeAccountsResult = Schema.Struct({
+  accounts: Schema.Array(DiscoveredClaudeAccount),
+});
+export type DiscoverClaudeAccountsResult = typeof DiscoverClaudeAccountsResult.Type;
+
+/**
+ * API-key Claude account. The key is persisted as the instance's sensitive
+ * `ANTHROPIC_API_KEY`, the same variable Settings › Providers stores.
+ */
+export const ProviderAccountApiKeyInput = Schema.Struct({
+  label: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  apiKey: Schema.String.check(Schema.isMaxLength(4_096)),
+});
+export type ProviderAccountApiKeyInput = typeof ProviderAccountApiKeyInput.Type;
+
+export const ProviderAccountApiKeyResult = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  label: Schema.String,
+  configDir: Schema.String,
+});
+export type ProviderAccountApiKeyResult = typeof ProviderAccountApiKeyResult.Type;
+
 export class ProviderAccountLoginError extends Schema.TaggedError<ProviderAccountLoginError>()(
   "ProviderAccountLoginError",
   {

@@ -3,6 +3,9 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
+  DiscoverClaudeAccountsResult,
+  ProviderAccountApiKeyInput,
+  ProviderAccountApiKeyResult,
   ProviderAccountLoginCodeInput,
   ProviderAccountLoginError,
   ProviderAccountLoginFlowInput,
@@ -315,6 +318,8 @@ export const WS_METHODS = {
   providerAccountLoginSubmitCode: "provider.accountLogin.submitCode",
   providerAccountLoginCancel: "provider.accountLogin.cancel",
   providerAccountLoginSubscribe: "provider.accountLogin.subscribe",
+  providerAccountLoginDiscover: "provider.accountLogin.discover",
+  providerAccountLoginSaveApiKey: "provider.accountLogin.saveApiKey",
   providerInstallStart: "provider.install.start",
   providerInstallCancel: "provider.install.cancel",
   providerInstallSubscribe: "provider.install.subscribe",
@@ -569,6 +574,18 @@ const WsProviderAccountLoginSubscribeRpc = Rpc.make(WS_METHODS.providerAccountLo
   success: ProviderAccountLoginState,
   error: ProviderAccountLoginRpcError,
   stream: true,
+});
+
+const WsProviderAccountLoginDiscoverRpc = Rpc.make(WS_METHODS.providerAccountLoginDiscover, {
+  payload: Schema.Struct({}),
+  success: DiscoverClaudeAccountsResult,
+  error: ProviderAccountLoginRpcError,
+});
+
+const WsProviderAccountLoginSaveApiKeyRpc = Rpc.make(WS_METHODS.providerAccountLoginSaveApiKey, {
+  payload: ProviderAccountApiKeyInput,
+  success: ProviderAccountApiKeyResult,
+  error: ProviderAccountLoginRpcError,
 });
 
 const WsProviderInstallStartRpc = Rpc.make(WS_METHODS.providerInstallStart, {
@@ -1446,6 +1463,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderAccountLoginSubmitCodeRpc,
   WsProviderAccountLoginCancelRpc,
   WsProviderAccountLoginSubscribeRpc,
+  WsProviderAccountLoginDiscoverRpc,
+  WsProviderAccountLoginSaveApiKeyRpc,
   WsProviderInstallStartRpc,
   WsProviderInstallCancelRpc,
   WsProviderInstallSubscribeRpc,

@@ -4,7 +4,9 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import type {
+  DiscoveredClaudeAccount,
   EnvironmentId,
+  ProviderAccountApiKeyResult,
   ProviderAccountLoginDriver,
   ProviderInstanceId,
   ServerProvider,
@@ -40,12 +42,14 @@ const DRIVERS: ReadonlyArray<{
   { value: "codex", label: "Codex", icon: OpenAI },
 ];
 
+type ClaudeAccess = "oauth" | "apiKey";
+
 const COMMAND_OPTIONS = { reportFailure: false, reportDefect: false };
 
 /**
- * Signs another Claude or Codex account in on the environment's machine: the
- * server runs the CLI's own login in a fresh config folder and adds the
- * account as a provider instance when it succeeds.
+ * Signs another Claude or Codex account in, or saves a Claude API key the same
+ * way Settings › Providers stores one. Also lists Claude config directories
+ * that already have a login so they can be selected without signing in again.
  */
 export function AddAccountDialog(props: {
   readonly environmentId: EnvironmentId;
@@ -60,13 +64,17 @@ export function AddAccountDialog(props: {
   const [driver, setDriver] = useState<ProviderAccountLoginDriver>(
     props.initialDriver ?? "claudeAgent",
   );
+  const [access, setAccess] = useState<ClaudeAccess>("oauth");
   const [label, setLabel] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [flowId, setFlowId] = useState<string | null>(null);
+  const [savedKey, setSavedKey] = useState<ProviderAccountApiKeyResult | null>(null);
+  const [discovered, setDiscovered] = useState<ReadonlyArray<DiscoveredClaudeAccount>>([]);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
-  const addedFlowRef = useRef<string | null>(null);
+  const addedRef = useRef<string | null>(null);
 
   const startLogin = useAtomCommand(serverEnvironment.startProviderAccountLogin, COMMAND_OPTIONS);
   const submitCode = useAtomCommand(
@@ -74,6 +82,14 @@ export function AddAccountDialog(props: {
     COMMAND_OPTIONS,
   );
   const cancelLogin = useAtomCommand(serverEnvironment.cancelProviderAccountLogin, COMMAND_OPTIONS);
+  const discoverAccounts = useAtomCommand(
+    serverEnvironment.discoverProviderAccounts,
+    COMMAND_OPTIONS,
+  );
+  const saveApiKeyCommand = useAtomCommand(
+    serverEnvironment.saveProviderAccountApiKey,
+    COMMAND_OPTIONS,
+  );
   const loginQuery = useEnvironmentQuery(
     flowId
       ? serverEnvironment.providerAccountLoginState({ environmentId, input: { flowId } })
@@ -85,16 +101,32 @@ export function AddAccountDialog(props: {
     flowId !== null &&
     loginQuery.error === null &&
     (login === null || login.phase === "starting" || login.phase === "waiting");
+  const pendingInstanceId =
+    login?.phase === "succeeded" ? login.instanceId : (savedKey?.instanceId ?? null);
   const listed =
-    login?.phase === "succeeded" &&
-    (providers ?? []).some((provider) => provider.instanceId === login.instanceId);
+    pendingInstanceId !== null &&
+    (providers ?? []).some((provider) => provider.instanceId === pendingInstanceId);
   const driverName = DRIVERS.find((entry) => entry.value === (login?.driver ?? driver))?.label;
+  const apiKeyMode = driver === "claudeAgent" && access === "apiKey";
 
   useEffect(() => {
-    if (!listed || !login || !providers || addedFlowRef.current === login.flowId) return;
-    addedFlowRef.current = login.flowId;
-    onAdded?.(login.instanceId, providers);
-  }, [listed, login, onAdded, providers]);
+    let cancelled = false;
+    void discoverAccounts({ environmentId, input: {} }).then((result) => {
+      if (cancelled || result._tag !== "Success") return;
+      setDiscovered(result.value.accounts);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [discoverAccounts, environmentId]);
+
+  useEffect(() => {
+    if (!listed || !pendingInstanceId || !providers || addedRef.current === pendingInstanceId) {
+      return;
+    }
+    addedRef.current = pendingInstanceId;
+    onAdded?.(pendingInstanceId, providers);
+  }, [listed, onAdded, pendingInstanceId, providers]);
 
   async function run<A, E>(request: () => Promise<AtomCommandResult<A, E>>): Promise<A | null> {
     if (pendingRef.current) return null;
@@ -124,6 +156,19 @@ export function AddAccountDialog(props: {
     if (state) setFlowId(state.flowId);
   }
 
+  async function saveKey() {
+    const trimmed = label.trim();
+    const key = apiKey.trim();
+    if (!trimmed || !key) return;
+    const saved = await run(() =>
+      saveApiKeyCommand({ environmentId, input: { label: trimmed, apiKey: key } }),
+    );
+    if (saved) {
+      setApiKey("");
+      setSavedKey(saved);
+    }
+  }
+
   async function sendCode() {
     if (!flowId || !code.trim()) return;
     const sent = await run(() =>
@@ -132,20 +177,45 @@ export function AddAccountDialog(props: {
     if (sent) setCode("");
   }
 
+  function selectDiscovered(account: DiscoveredClaudeAccount) {
+    const current = providers ?? [];
+    if (current.some((provider) => provider.instanceId === account.instanceId)) {
+      onAdded?.(account.instanceId, current);
+      onOpenChange(false);
+      return;
+    }
+    setSavedKey({
+      instanceId: account.instanceId,
+      label: account.label,
+      configDir: account.configDir,
+    });
+  }
+
   function cancel() {
     if (flowId && active) void cancelLogin({ environmentId, input: { flowId } });
   }
 
   function close() {
-    // An open login would otherwise keep waiting on the machine for ten minutes.
+    setApiKey("");
     cancel();
     onOpenChange(false);
   }
 
   function restart() {
     setFlowId(null);
+    setSavedKey(null);
     setCode("");
+    setApiKey("");
     setError(null);
+    addedRef.current = null;
+  }
+
+  function chooseDriver(next: ProviderAccountLoginDriver) {
+    setDriver(next);
+    if (next !== "claudeAgent") {
+      setAccess("oauth");
+      setApiKey("");
+    }
   }
 
   async function openSignInPage(url: string) {
@@ -165,6 +235,8 @@ export function AddAccountDialog(props: {
   }
 
   const finished = login?.phase === "failed" || login?.phase === "cancelled";
+  const canSubmit =
+    label.trim().length > 0 && !pending && (!apiKeyMode || apiKey.trim().length > 0);
 
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : close())}>
@@ -172,18 +244,19 @@ export function AddAccountDialog(props: {
         <DialogHeader>
           <DialogTitle>Add account</DialogTitle>
           <DialogDescription>
-            Sign in to another Claude or Codex account. It gets its own config folder and joins your
-            accounts.
+            Sign in to another Claude or Codex account, or connect Claude with an API key. It joins
+            your accounts.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex flex-col gap-3 text-sm">
-          {flowId === null ? (
+          {flowId === null && savedKey === null ? (
             <form
               id="add-account-form"
               className="flex flex-col gap-3"
               onSubmit={(event) => {
                 event.preventDefault();
-                void start();
+                if (apiKeyMode) void saveKey();
+                else void start();
               }}
             >
               <div role="radiogroup" aria-label="Agent" className="grid grid-cols-2 gap-2">
@@ -199,13 +272,74 @@ export function AddAccountDialog(props: {
                         ? "border-primary bg-primary/8 text-foreground ring-1 ring-primary"
                         : "text-muted-foreground hover:bg-accent",
                     )}
-                    onClick={() => setDriver(entry.value)}
+                    onClick={() => chooseDriver(entry.value)}
                   >
                     <entry.icon className="size-4 shrink-0" aria-hidden />
                     {entry.label}
                   </button>
                 ))}
               </div>
+              {driver === "claudeAgent" && discovered.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium">Already signed in</span>
+                  <ul className="flex flex-col gap-1.5">
+                    {discovered.map((account) => (
+                      <li
+                        key={account.instanceId}
+                        className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
+                      >
+                        <span className="min-w-0">
+                          <span className="block font-medium">{account.label}</span>
+                          <span className="block truncate font-mono text-xs text-muted-foreground">
+                            {account.configDir}
+                          </span>
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => selectDiscovered(account)}
+                        >
+                          Select
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {driver === "claudeAgent" ? (
+                <div
+                  role="radiogroup"
+                  aria-label="Claude access"
+                  className="grid grid-cols-2 gap-2"
+                >
+                  {(
+                    [
+                      ["oauth", "Sign in with Claude"],
+                      ["apiKey", "Use an API key"],
+                    ] as const
+                  ).map(([value, text]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={access === value}
+                      className={cn(
+                        "rounded-lg border px-3 py-2.5 text-left text-sm font-medium",
+                        access === value
+                          ? "border-primary bg-primary/8 text-foreground ring-1 ring-primary"
+                          : "text-muted-foreground hover:bg-accent",
+                      )}
+                      onClick={() => {
+                        setAccess(value);
+                        if (value !== "apiKey") setApiKey("");
+                      }}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium">Label</span>
                 <Input
@@ -217,7 +351,36 @@ export function AddAccountDialog(props: {
                   disabled={pending}
                 />
               </label>
+              {apiKeyMode ? (
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium">API key</span>
+                  <Input
+                    type="password"
+                    aria-label="Claude API key"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={apiKey}
+                    maxLength={4096}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder="From console.anthropic.com"
+                    disabled={pending}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Billed as API usage, not a Claude.ai subscription. Stored with this account's
+                    provider settings.
+                  </span>
+                </label>
+              ) : null}
             </form>
+          ) : savedKey !== null && flowId === null ? (
+            <div className="flex flex-col gap-2" aria-live="polite">
+              <p role="status">
+                {listed
+                  ? `${savedKey.label} is one of your Claude accounts.`
+                  : `Adding ${savedKey.label} to your accounts…`}
+              </p>
+              <p className="text-xs text-muted-foreground">Folder: {savedKey.configDir}</p>
+            </div>
           ) : (
             <div className="flex flex-col gap-3" aria-live="polite">
               <p role="status" className={cn(finished && "text-destructive")}>
@@ -285,17 +448,13 @@ export function AddAccountDialog(props: {
           ) : null}
         </DialogPanel>
         <DialogFooter>
-          {flowId === null ? (
+          {flowId === null && savedKey === null ? (
             <>
               <Button variant="outline" onClick={close}>
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                form="add-account-form"
-                disabled={pending || label.trim().length === 0}
-              >
-                Sign in
+              <Button type="submit" form="add-account-form" disabled={!canSubmit}>
+                {apiKeyMode ? "Save" : "Sign in"}
               </Button>
             </>
           ) : active ? (
