@@ -85,6 +85,7 @@ describe("deriveChatAgents", () => {
         detail: null,
         files: ["src/a.ts", "src/b.ts"],
         transcript: "",
+        events: [],
       },
     ]);
     expect(formatEditedFiles(agents[0]!.files)).toBe("Edited a.ts, b.ts");
@@ -113,7 +114,7 @@ describe("deriveChatAgents", () => {
     ]);
   });
 
-  it("keeps working Cursor tasks ahead of a parent that is already done", () => {
+  it("keeps background tasks running while the parent turn is still active", () => {
     const task = (id: string, description: string, prompt: string) => ({
       kind: "tool.completed",
       createdAt: "2026-10-01T15:23:45.000Z",
@@ -130,9 +131,9 @@ describe("deriveChatAgents", () => {
     });
     const agents = deriveChatAgents({
       mainLabel: "claude-opus-5-5",
-      isWorking: false,
-      latestTurn: { turnId: turnOne, state: "completed" },
-      runningTurnId: null,
+      isWorking: true,
+      latestTurn: { turnId: turnOne, state: "running" },
+      runningTurnId: turnOne,
       agentPanelModel: emptyAgentPanelModel(),
       workLogEntries: [],
       checkpoints: [],
@@ -181,7 +182,7 @@ describe("deriveChatAgents", () => {
       ],
     });
 
-    const working = agents.filter((agent) => agent.state === "working");
+    const working = agents.filter((agent) => agent.state === "working" && agent.id !== "main");
     expect(working.map((agent) => agent.name)).toEqual([
       "Split cellular sync switches",
       "Per-environment web Sentry DSN",
@@ -192,9 +193,7 @@ describe("deriveChatAgents", () => {
       "Wire the DSN in infra/scripts/deploy-web.sh",
       "Read apps/mobile/src/deadline.ts",
     ]);
-    expect(
-      agents.findIndex((agent) => agent.id === "main" && agent.state === "done"),
-    ).toBeGreaterThan(agents.findIndex((agent) => agent.state === "working"));
+    expect(agents.find((agent) => agent.id === "main")?.state).toBe("working");
     expect(
       agents.some((agent) => agent.name === "Stop RN-X work" && agent.state === "working"),
     ).toBe(false);
@@ -204,7 +203,7 @@ describe("deriveChatAgents", () => {
     );
   });
 
-  it("keeps a slimmed background launch running from its Task title", () => {
+  it("marks a background launch Done once the parent turn has finished", () => {
     const agents = deriveChatAgents({
       mainLabel: "claude-opus-5-5",
       isWorking: false,
@@ -227,8 +226,100 @@ describe("deriveChatAgents", () => {
       ],
     });
     expect(agents.map((agent) => [agent.name, agent.state])).toEqual([
-      ["Gather deadline reopen + notify", "working"],
       ["claude-opus-5-5", "done"],
+      ["Gather deadline reopen + notify", "done"],
+    ]);
+    expect(agents.filter((agent) => agent.state === "working")).toEqual([]);
+  });
+
+  it("hides untitled Subagent task failures and does not count settled tasks as running", () => {
+    const task = (id: string, title: string, rawOutput: Record<string, unknown>) => ({
+      kind: "tool.completed",
+      createdAt: "2026-09-30T18:25:05.000Z",
+      payload: {
+        status: "completed",
+        title,
+        toolCallId: id,
+        data: {
+          toolCallId: id,
+          rawInput: {
+            _toolName: "task",
+            ...(title.startsWith("Task: Subagent")
+              ? {}
+              : { description: title.replace(/^Task:\s*/, "") }),
+          },
+          rawOutput,
+        },
+      },
+    });
+    const agents = deriveChatAgents({
+      mainLabel: "default",
+      isWorking: false,
+      latestTurn: { turnId: turnOne, state: "completed", completedAt: "2026-09-30T18:25:18.000Z" },
+      runningTurnId: null,
+      agentPanelModel: emptyAgentPanelModel(),
+      workLogEntries: [],
+      checkpoints: [],
+      activities: [
+        task("toolu_a", "Task: Subagent task", {
+          error: "Tool call arguments were not valid JSON",
+        }),
+        task("toolu_b", "Task: Subagent task", {
+          error: "Tool call arguments were not valid JSON",
+        }),
+        task("toolu_studio", "Task: Map Studio config & schemas", { isBackground: true }),
+        task("toolu_actions", "Task: Map actions, plugins, workflow", { isBackground: true }),
+      ],
+    });
+    expect(agents.some((agent) => agent.name === "Subagent task")).toBe(false);
+    expect(agents.filter((agent) => agent.state === "working")).toEqual([]);
+    expect(agents.map((agent) => [agent.name, agent.state])).toEqual([
+      ["default", "done"],
+      ["Map Studio config & schemas", "done"],
+      ["Map actions, plugins, workflow", "done"],
+    ]);
+  });
+
+  it("keeps a child running when an in-progress event is newer than the parent completion", () => {
+    const agents = deriveChatAgents({
+      mainLabel: "default",
+      isWorking: false,
+      latestTurn: { turnId: turnOne, state: "completed", completedAt: "2026-09-30T18:25:18.000Z" },
+      runningTurnId: null,
+      agentPanelModel: emptyAgentPanelModel(),
+      workLogEntries: [],
+      checkpoints: [],
+      activities: [
+        {
+          kind: "tool.completed",
+          createdAt: "2026-09-30T18:25:05.000Z",
+          payload: {
+            status: "completed",
+            title: "Task: Map Studio config & schemas",
+            data: {
+              toolCallId: "toolu_studio",
+              rawInput: { _toolName: "task", description: "Map Studio config & schemas" },
+              rawOutput: { isBackground: true },
+            },
+          },
+        },
+        {
+          kind: "tool.updated",
+          createdAt: "2026-09-30T18:26:00.000Z",
+          payload: {
+            status: "inProgress",
+            title: "Read sanity.config.ts",
+            agentId: "toolu_studio",
+            data: { toolCallId: "toolu_read", command: "cat sanity.config.ts" },
+          },
+        },
+      ],
+    });
+    const studio = agents.find((agent) => agent.name === "Map Studio config & schemas");
+    expect(studio?.state).toBe("working");
+    expect(studio?.events.map((event) => event.label)).toContain("Read sanity.config.ts");
+    expect(agents.filter((agent) => agent.state === "working").map((agent) => agent.name)).toEqual([
+      "Map Studio config & schemas",
     ]);
   });
 
@@ -268,21 +359,18 @@ describe("deriveChatAgents", () => {
       ],
     });
 
-    const working = agents.filter((agent) => agent.state === "working");
-    expect(working.map((agent) => agent.name)).toEqual([
+    expect(agents.filter((agent) => agent.state === "working")).toEqual([]);
+    expect(agents.filter((agent) => agent.id !== "main").map((agent) => agent.name)).toEqual([
       "Gather deadline reopen + notify",
       "Split cellular sync switches",
       "Per-environment web Sentry DSN",
     ]);
-    expect(working.map((agent) => agent.id)).toEqual([
+    expect(agents.filter((agent) => agent.id !== "main").map((agent) => agent.id)).toEqual([
       "fd73c894-125f-4d01-b5cb-53c1f4bbf325",
       "a8c59019-54ad-4f35-91e5-200da3f5deca",
       "85e20f09-7767-4dc2-8022-a036216b7d5f",
     ]);
     expect(agents.find((agent) => agent.id === "main")?.state).toBe("done");
-    expect(agents.findIndex((agent) => agent.state === "done")).toBeGreaterThan(
-      agents.findIndex((agent) => agent.state === "working"),
-    );
     expect(agents.some((agent) => agent.name === "Docs")).toBe(false);
     expect(
       agents.find((agent) => agent.name === "Gather deadline reopen + notify")?.transcript,
@@ -328,7 +416,7 @@ describe("deriveChatAgents", () => {
     expect(agents.filter((agent) => agent.name === "Split cellular sync switches")).toHaveLength(1);
     expect(agents.find((agent) => agent.name === "Split cellular sync switches")).toMatchObject({
       id: "call-split",
-      state: "working",
+      state: "done",
     });
   });
 });
@@ -350,6 +438,7 @@ describe("agent links", () => {
             detail: null,
             files: [],
             transcript: "",
+            events: [],
           },
         ],
         { label: "Gather deadline reopen + notify" },

@@ -11,6 +11,14 @@ import type { ChatMessage, TurnDiffSummary } from "../../types";
 
 export type ChatAgentState = "working" | "idle" | "done" | "stopped" | "failed";
 
+/** One tool row on an agent's card, updated as thread events arrive. */
+export interface ChatAgentEvent {
+  readonly id: string;
+  readonly label: string;
+  readonly detail: string | null;
+  readonly state: ChatAgentState;
+}
+
 /** One row of a chat's agent indicator: the main turn or a subagent the provider reported. */
 export interface ChatAgentStatus {
   readonly id: string;
@@ -21,12 +29,16 @@ export interface ChatAgentStatus {
   readonly files: ReadonlyArray<string>;
   /** Assignment plus whatever output the provider has stored so far. */
   readonly transcript: string;
+  /** Commands and tool calls for this agent, newest state of each call. */
+  readonly events: ReadonlyArray<ChatAgentEvent>;
 }
 
 /** A thread activity the agent reader can see. Tool rows carry Cursor's Task payload. */
 export interface ChatAgentActivity {
   readonly kind: string;
   readonly createdAt?: string;
+  readonly turnId?: string | null;
+  readonly summary?: string;
   readonly payload: unknown;
 }
 
@@ -48,7 +60,9 @@ export interface ChatOutput {
   readonly completedAt: string;
 }
 
-type LatestTurn = Pick<OrchestrationLatestTurn, "turnId" | "state">;
+type LatestTurn = Pick<OrchestrationLatestTurn, "turnId" | "state"> & {
+  readonly completedAt?: string | null;
+};
 type TurnFilesSource = {
   readonly workLogEntries: ReadonlyArray<Pick<WorkLogEntry, "turnId" | "changedFiles">>;
   readonly checkpoints: ReadonlyArray<Pick<TurnDiffSummary, "turnId" | "files">>;
@@ -174,12 +188,22 @@ interface CursorTaskAccum {
   detail: string | null;
 }
 
+/** Cursor's placeholder when a Task call never parsed. Not a real agent name. */
+const GENERIC_AGENT_NAME = /^(?:subagent task|subagent|task)$/i;
+
 function taskTitle(title: string | null, rawInput: Record<string, unknown> | null): string | null {
   const description =
     asText(rawInput?.description) ?? asText(rawInput?.task) ?? asText(rawInput?.name);
-  if (description) return description;
-  if (!title) return null;
-  return title.replace(/^Task:\s*/i, "").trim() || null;
+  const fromTitle = title?.replace(/^Task:\s*/i, "").trim() || null;
+  const prompt = asText(rawInput?.prompt);
+  const promptLine = prompt
+    ?.split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !line.startsWith("#"));
+  for (const candidate of [description, fromTitle, promptLine ?? null]) {
+    if (candidate && !GENERIC_AGENT_NAME.test(candidate)) return candidate;
+  }
+  return null;
 }
 
 function isCursorAgentTool(
@@ -256,13 +280,48 @@ function workingDetail(task: CursorTaskAccum): string | null {
 }
 
 /**
+ * A background Task stays Running only while its parent turn is still active,
+ * or a newer in-progress event arrives after that turn completed. Once the
+ * parent is finished and nothing newer is in flight, the child is Done.
+ */
+function backgroundTaskState(input: {
+  readonly parentActive: boolean;
+  readonly parentCompletedAt: string | null;
+  readonly background: boolean;
+  readonly launchOnly: boolean;
+  readonly failed: boolean;
+  readonly stopped: boolean;
+  readonly childCompleted: boolean;
+  readonly status: string | null;
+  readonly at: string | null;
+}): ChatAgentState {
+  if (input.failed) return "failed";
+  if (input.stopped) return "stopped";
+  if (input.childCompleted && !input.background && !input.launchOnly) return "done";
+  const open =
+    input.background ||
+    input.launchOnly ||
+    input.status === "in_progress" ||
+    input.status === "inProgress" ||
+    input.status === "pending";
+  if (!open) return "done";
+  if (input.parentActive) return "working";
+  const newerThanParent =
+    input.parentCompletedAt !== null &&
+    input.at !== null &&
+    input.at > input.parentCompletedAt &&
+    (input.status === "in_progress" || input.status === "inProgress" || input.status === "pending");
+  return newerThanParent ? "working" : "done";
+}
+
+/**
  * Cursor launches subagents as Task tools that complete at once with
- * `{ isBackground: true }`. The child keeps running after the parent turn
- * is done. The wire snapshot often keeps only `Task: <name>`; a row with no
- * result is still that launch.
+ * `{ isBackground: true }`. The wire snapshot often keeps only `Task: <name>`.
  */
 function cursorTaskAgents(
   activities: ReadonlyArray<ChatAgentActivity> | undefined,
+  parentActive: boolean,
+  parentCompletedAt: string | null,
 ): ChatAgentStatus[] {
   if (!activities || activities.length === 0) return [];
   const tasks = new Map<string, CursorTaskAccum>();
@@ -292,7 +351,7 @@ function cursorTaskAgents(
       detail: null,
     };
     const name = taskTitle(title, rawInput);
-    if (name && (task.name === task.id || name.length > task.name.length)) task.name = name;
+    if (name) task.name = name;
     const prompt = asText(rawInput?.prompt);
     if (prompt && prompt.length > task.prompt.length) task.prompt = prompt;
     if (written && written.length >= task.transcript.length) task.transcript = written;
@@ -301,35 +360,46 @@ function cursorTaskAgents(
     }
     const status = asText(payload?.status) ?? asText(data?.status);
     const childState = asText(rawInput?.state);
-    const runningError =
-      asText(rawOutput?.error)?.toLowerCase().includes("currently running") ?? false;
+    const errorText = asText(rawOutput?.error);
+    const runningError = errorText?.toLowerCase().includes("currently running") ?? false;
     const background = rawOutput?.isBackground === true;
     const namedTask = title?.startsWith("Task:") ?? false;
     // No result text means the completion is the launch, not the child finishing.
-    const launchOnly = namedTask && !written && !runningError;
-    if (childState === "failed" || status === "failed") task.state = "failed";
-    else if (childState === "cancelled" || childState === "disconnected") task.state = "stopped";
-    else if (childState === "completed") task.state = "done";
-    else if (background || launchOnly) task.state = "working";
-    else if (runningError) task.state = "failed";
-    else if (status === "completed") task.state = "done";
-    else if (status === "in_progress" || status === "inProgress" || status === "pending") {
-      task.state = "working";
-    }
+    const launchOnly = namedTask && !written && !runningError && !errorText;
+    const at = activity.createdAt ?? null;
+    task.state = backgroundTaskState({
+      parentActive,
+      parentCompletedAt,
+      background,
+      launchOnly,
+      failed:
+        childState === "failed" ||
+        status === "failed" ||
+        runningError ||
+        (errorText !== null && !runningError),
+      stopped: childState === "cancelled" || childState === "disconnected",
+      childCompleted: childState === "completed",
+      status,
+      at,
+    });
     tasks.set(id, task);
   }
-  return [...tasks.values()].map((task) => {
+  return [...tasks.values()].flatMap((task) => {
+    if (task.name === task.id || GENERIC_AGENT_NAME.test(task.name)) return [];
     const transcript = [task.prompt, task.transcript]
       .filter((part, index, all) => part.length > 0 && all.indexOf(part) === index)
       .join("\n\n");
-    return {
-      id: task.id,
-      name: task.name,
-      state: task.state,
-      detail: task.state === "working" ? workingDetail(task) : null,
-      files: task.files,
-      transcript,
-    };
+    return [
+      {
+        id: task.id,
+        name: task.name,
+        state: task.state,
+        detail: task.state === "working" ? workingDetail(task) : null,
+        files: task.files,
+        transcript,
+        events: [],
+      },
+    ];
   });
 }
 
@@ -376,6 +446,7 @@ const AGENT_LINK = /\[([^\]]+)\]\(([^)\s]+)\)/;
  */
 function transcriptRunningAgents(
   messages: ReadonlyArray<Pick<ChatMessage, "role" | "text">> | undefined,
+  parentActive: boolean,
 ): ChatAgentStatus[] {
   if (!messages || messages.length === 0) return [];
   const details = new Map<string, string>();
@@ -417,10 +488,11 @@ function transcriptRunningAgents(
     return {
       id: mention.id,
       name: mention.name,
-      state: "working" as const,
-      detail: detail ? clipLine(detail) : null,
+      state: parentActive ? ("working" as const) : ("done" as const),
+      detail: parentActive && detail ? clipLine(detail) : null,
       files: [],
       transcript: detail ?? "",
+      events: [],
     };
   });
 }
@@ -428,6 +500,7 @@ function transcriptRunningAgents(
 function absorbNamedAgents(
   byId: Map<string, ChatAgentStatus>,
   named: ReadonlyArray<ChatAgentStatus>,
+  parentActive: boolean,
 ) {
   const byName = new Map<string, string>();
   for (const agent of byId.values()) byName.set(agent.name.trim().toLowerCase(), agent.id);
@@ -442,6 +515,7 @@ function absorbNamedAgents(
     // A launch row with no result is not the child finishing. The parent's
     // report that this agent is still running wins over that empty completion.
     const stillRunning =
+      parentActive &&
       agent.state === "working" &&
       existing.state !== "failed" &&
       existing.state !== "stopped" &&
@@ -472,13 +546,127 @@ function mergeAgent(current: ChatAgentStatus, incoming: ChatAgentStatus): ChatAg
       incoming.transcript.length > current.transcript.length
         ? incoming.transcript
         : current.transcript,
+    events: current.events.length > 0 ? current.events : incoming.events,
   };
+}
+
+function parentTurnIsActive(input: {
+  readonly isWorking: boolean;
+  readonly latestTurn: { readonly state?: string } | null;
+  readonly runningTurnId: string | null;
+}): boolean {
+  if (input.runningTurnId) return true;
+  return input.isWorking && input.latestTurn?.state === "running";
+}
+
+function activityToolId(activity: ChatAgentActivity): string | null {
+  const payload = asRecord(activity.payload);
+  const data = asRecord(payload?.data) ?? payload;
+  const rawInput = asRecord(data?.rawInput);
+  const rawId =
+    asText(rawInput?.linkedToolCallId) ??
+    asText(data?.toolCallId) ??
+    asText(payload?.toolCallId) ??
+    asText(payload?.agentId) ??
+    asText(data?.agentId) ??
+    asText(payload?.parentToolUseId) ??
+    asText(data?.parentToolUseId) ??
+    asText(payload?.taskId) ??
+    asText(data?.taskId);
+  return rawId ? cursorAgentId(rawId) : null;
+}
+
+function activityBelongsToAgent(activity: ChatAgentActivity, agentId: string): boolean {
+  const payload = asRecord(activity.payload);
+  const data = asRecord(payload?.data) ?? payload;
+  const rawInput = asRecord(data?.rawInput);
+  const ids = [
+    activityToolId(activity),
+    asText(payload?.agentId),
+    asText(data?.agentId),
+    asText(payload?.parentToolUseId),
+    asText(data?.parentToolUseId),
+    asText(payload?.taskId),
+    asText(data?.taskId),
+    asText(rawInput?.linkedToolCallId),
+  ];
+  return ids.some((id) => id === agentId || (id !== null && cursorAgentId(id) === agentId));
+}
+
+function eventState(status: string | null): ChatAgentState {
+  if (status === "failed") return "failed";
+  if (status === "cancelled" || status === "disconnected") return "stopped";
+  if (status === "in_progress" || status === "inProgress" || status === "pending") return "working";
+  return "done";
+}
+
+/** Latest state of each tool call, in the order the calls first appeared. */
+function toolEvents(
+  activities: ReadonlyArray<ChatAgentActivity>,
+  include: (activity: ChatAgentActivity) => boolean,
+): ChatAgentEvent[] {
+  const ordered = [...activities].sort((left, right) =>
+    (left.createdAt ?? "") < (right.createdAt ?? "") ? -1 : 1,
+  );
+  const byTool = new Map<string, ChatAgentEvent>();
+  const order: string[] = [];
+  for (const activity of ordered) {
+    if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") continue;
+    if (!include(activity)) continue;
+    const payload = asRecord(activity.payload);
+    const data = asRecord(payload?.data) ?? payload;
+    const rawInput = asRecord(data?.rawInput);
+    const id =
+      activityToolId(activity) ??
+      `${activity.createdAt ?? ""}:${asText(payload?.title) ?? activity.summary ?? "tool"}`;
+    if (!byTool.has(id)) order.push(id);
+    const label = asText(payload?.title) ?? asText(data?.title) ?? activity.summary ?? "Tool";
+    const command =
+      asText(data?.command) ??
+      asText(rawInput?.command) ??
+      asText(payload?.detail) ??
+      asText(data?.detail);
+    const status = asText(payload?.status) ?? asText(data?.status);
+    byTool.set(id, {
+      id,
+      label,
+      detail: command,
+      state: eventState(status),
+    });
+  }
+  return order.flatMap((id) => {
+    const event = byTool.get(id);
+    return event ? [event] : [];
+  });
+}
+
+function withLiveEvents(
+  agents: ReadonlyArray<ChatAgentStatus>,
+  activities: ReadonlyArray<ChatAgentActivity> | undefined,
+): ChatAgentStatus[] {
+  const rows = activities ?? [];
+  return agents.map((agent) => {
+    const events =
+      agent.id === "main"
+        ? toolEvents(rows, (activity) => {
+            const payload = asRecord(activity.payload);
+            const data = asRecord(payload?.data) ?? payload;
+            const rawInput = asRecord(data?.rawInput);
+            const rawOutput = asRecord(data?.rawOutput);
+            const title = asText(payload?.title) ?? asText(data?.title);
+            const written = outputText(rawOutput) ?? contentText(data?.content);
+            return !isCursorAgentTool(rawInput, rawOutput, title, written);
+          })
+        : toolEvents(rows, (activity) => activityBelongsToAgent(activity, agent.id));
+    return events.length > 0 ? { ...agent, events } : agent;
+  });
 }
 
 /**
  * The chat's agents: the main turn, provider-reported subagents, and Cursor
- * Task tools that are still in flight after their launch row says completed.
- * A provider with a single session yields a single row. Working agents sort first.
+ * Task tools. A background child is Running only while the parent turn is
+ * active, or a newer in-progress event arrives after that turn finished.
+ * Working agents sort first.
  */
 export function deriveChatAgents(
   input: TurnFilesSource & {
@@ -507,8 +695,11 @@ export function deriveChatAgents(
       detail: null,
       files: turnId === null ? [] : turnFiles(input, turnId).map((file) => file.path),
       transcript: assistantTranscript(input.messages, turnId),
+      events: [],
     });
   }
+  const parentActive = parentTurnIsActive(input);
+  const parentCompletedAt = parentActive ? null : (input.latestTurn?.completedAt ?? null);
   const byId = new Map<string, ChatAgentStatus>();
   for (const agent of agents) byId.set(agent.id, agent);
   for (const agent of reportedSubagents(input.agentPanelModel)) {
@@ -523,14 +714,13 @@ export function deriveChatAgents(
           : null,
       files: [],
       transcript: subagentTranscript(agent),
+      events: [],
     };
     const existing = byId.get(row.id);
     byId.set(row.id, existing ? mergeAgent(existing, row) : row);
   }
-  for (const agent of cursorTaskAgents(input.activities)) {
+  for (const agent of cursorTaskAgents(input.activities, parentActive, parentCompletedAt)) {
     const existing = byId.get(agent.id);
-    // The stored Task tool is the authority for Cursor children: a background
-    // launch stays working after the parent turn is marked done.
     byId.set(
       agent.id,
       existing
@@ -542,8 +732,39 @@ export function deriveChatAgents(
         : agent,
     );
   }
-  absorbNamedAgents(byId, transcriptRunningAgents(input.messages));
-  return orderChatAgents([...byId.values()]);
+  absorbNamedAgents(byId, transcriptRunningAgents(input.messages, parentActive), parentActive);
+  const settled = settleChildrenAfterParent(
+    [...byId.values()],
+    input.activities,
+    parentCompletedAt,
+  );
+  return orderChatAgents(withLiveEvents(settled, input.activities));
+}
+
+/**
+ * A child that outlives the parent says so with an in-progress tool event
+ * timestamped after the parent turn completed. Anything older is Done.
+ */
+function settleChildrenAfterParent(
+  agents: ReadonlyArray<ChatAgentStatus>,
+  activities: ReadonlyArray<ChatAgentActivity> | undefined,
+  parentCompletedAt: string | null,
+): ChatAgentStatus[] {
+  if (!parentCompletedAt) return [...agents];
+  return agents.map((agent) => {
+    if (agent.id === "main" || agent.state === "failed" || agent.state === "stopped") return agent;
+    if (agent.state === "working") return agent;
+    const stillGoing = (activities ?? []).some((activity) => {
+      if ((activity.createdAt ?? "") <= parentCompletedAt) return false;
+      if (!activityBelongsToAgent(activity, agent.id)) return false;
+      const payload = asRecord(activity.payload);
+      const data = asRecord(payload?.data) ?? payload;
+      const status = asText(payload?.status) ?? asText(data?.status);
+      return status === "in_progress" || status === "inProgress" || status === "pending";
+    });
+    if (!stillGoing) return agent;
+    return { ...agent, state: "working", detail: agent.detail ?? "Running" };
+  });
 }
 
 const EDITED_FILES_SHOWN = 3;

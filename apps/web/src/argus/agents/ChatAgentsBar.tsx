@@ -1,5 +1,5 @@
 import type { TimestampFormat } from "@t3tools/contracts/settings";
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import { ChevronUpIcon } from "lucide-react";
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { composerFloatingLayerProps } from "../../components/chat/composerEventScope";
@@ -52,20 +52,17 @@ function AgentDot({ state }: { state: ChatAgentState }) {
   );
 }
 
-function AgentLine({
+function AgentListRow({
   agent,
   onOpen,
 }: {
   agent: ChatAgentStatus;
   onOpen: (agentId: string) => void;
 }) {
-  const edited = formatEditedFiles(agent.files);
-  const detail =
-    agent.detail ?? edited ?? (agent.state === "working" ? null : STATE_LABEL[agent.state]);
   return (
     <button
       type="button"
-      className="flex min-w-0 items-center gap-1.5 rounded px-0.5 text-left hover:bg-accent/70"
+      className="flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-accent/70"
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -75,19 +72,16 @@ function AgentLine({
       <AgentDot state={agent.state} />
       <span
         className={cn(
-          "max-w-40 shrink-0 truncate",
+          "min-w-0 flex-1 truncate",
           agent.state === "working" ? "text-foreground" : "text-foreground/75",
         )}
       >
         {agent.name}
       </span>
-      {detail ? <span className="min-w-0 truncate text-muted-foreground">{detail}</span> : null}
-      <span className="sr-only">{STATE_LABEL[agent.state]}</span>
+      <span className="shrink-0 text-muted-foreground">{STATE_LABEL[agent.state]}</span>
     </button>
   );
 }
-
-const COMPACT_AGENT_LIMIT = 2;
 
 /**
  * The chat's agents, working ones marked live, and the Transcript / Outputs /
@@ -113,19 +107,9 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
   const [listOpen, setListOpen] = useState(false);
   const [stackFocusId, setStackFocusId] = useState<string | null>(null);
   const workingCount = agents.filter((agent) => agent.state === "working").length;
-  // Working rows stay visible. A finished parent must not be the only chip
-  // while other agents are still running.
-  const compact =
-    workingCount > 0
-      ? agents.filter((agent) => agent.state === "working")
-      : agents.slice(0, COMPACT_AGENT_LIMIT);
-  const shown = listOpen ? agents : compact;
-  const overflow = agents.length - compact.length;
-  const openStack = (agentId: string | null) => {
-    if (agents.length === 0) return;
-    const focus =
-      agentId ?? agents.find((agent) => agent.state === "working")?.id ?? agents[0]?.id ?? null;
-    setStackFocusId(focus);
+  const openStack = (agentId: string) => {
+    setListOpen(false);
+    setStackFocusId(agentId);
   };
   useEffect(() => {
     const onOpen = (event: Event) => {
@@ -133,7 +117,9 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
       const agent = agentMatchingReference(agents, detail ?? {});
       const focus =
         agent?.id ?? agents.find((entry) => entry.state === "working")?.id ?? agents[0]?.id ?? null;
-      if (focus) setStackFocusId(focus);
+      if (!focus) return;
+      setListOpen(false);
+      setStackFocusId(focus);
     };
     window.addEventListener(OPEN_AGENT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_AGENT_EVENT, onOpen);
@@ -147,39 +133,33 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
       className="pointer-events-none flex min-w-0 items-end gap-2 pb-1.5 text-xs"
     >
       {agents.length > 0 ? (
-        <div className="surface-glass pointer-events-auto flex min-w-0 items-start gap-2 rounded-lg border border-border/60 px-2 py-1 shadow-sm">
-          <div
-            className={cn(
-              "flex min-w-0 flex-1 gap-x-3 gap-y-0.5",
-              listOpen ? "flex-col" : "flex-row items-center overflow-hidden",
-            )}
+        <div
+          className={cn(
+            "surface-glass pointer-events-auto flex min-w-0 flex-col rounded-lg border border-border/60 px-2 py-1 shadow-sm",
+            listOpen && "max-h-80 w-72 overflow-y-auto",
+          )}
+        >
+          <button
+            type="button"
+            aria-expanded={listOpen}
+            className="flex items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setListOpen((open) => !open);
+            }}
           >
-            <button
-              type="button"
-              className="shrink-0 font-medium text-muted-foreground hover:text-foreground"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                openStack(null);
-              }}
-            >
+            {workingCount > 0 ? <AgentDot state="working" /> : null}
+            <span className="min-w-0 flex-1 truncate text-left">
               Agents{workingCount > 0 ? ` · ${workingCount} running` : ""}
-            </button>
-            {shown.map((agent) => (
-              <AgentLine key={agent.id} agent={agent} onOpen={openStack} />
-            ))}
-          </div>
-          {overflow > 0 ? (
-            <button
-              type="button"
-              aria-expanded={listOpen}
-              className="flex h-5 shrink-0 items-center gap-0.5 rounded px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={() => setListOpen((open) => !open)}
-            >
-              {listOpen ? <ChevronUpIcon className="size-3" /> : `+${overflow}`}
-              {listOpen ? null : <ChevronDownIcon className="size-3" />}
-            </button>
-          ) : null}
+            </span>
+            {listOpen ? <ChevronUpIcon className="size-3 shrink-0" /> : null}
+          </button>
+          {listOpen
+            ? agents.map((agent) => (
+                <AgentListRow key={agent.id} agent={agent} onOpen={openStack} />
+              ))
+            : null}
         </div>
       ) : null}
       {stackFocusId !== null ? (
@@ -249,18 +229,25 @@ function AgentStack({
   useEffect(() => {
     if (!front) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isContextMenuOpen()) return;
-      const target = event.target;
-      if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) return;
+      if (isContextMenuOpen()) return;
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+      const target = event.target;
+      if (
+        (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) &&
+        target.closest("[data-argus-agent-stack]")
+      ) {
+        return;
+      }
       if (count < 2) return;
       event.preventDefault();
+      event.stopPropagation();
       const next = stepAgentStackIndex(index, count, event.key === "ArrowRight" ? 1 : -1);
       const agent = agents[next];
       if (agent) onFocus(agent.id);
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [agents, count, front, index, onFocus]);
   if (!front) return null;
   const depths: Array<{ agent: ChatAgentStatus; depth: number }> = [];
@@ -306,6 +293,7 @@ function AgentStack({
           ))}
           <article
             aria-label={front.name}
+            data-argus-agent-stack=""
             className="argus-focus-doc relative z-10 flex max-h-[88vh] flex-col overflow-hidden rounded-2xl border border-[#d4d4d8] shadow-lg"
             onClickCapture={(event) => {
               const target = event.target;
@@ -334,11 +322,24 @@ function AgentStack({
               </div>
             </header>
             <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+              {front.events.length > 0 ? (
+                <ul className="mb-4 flex flex-col gap-1.5">
+                  {front.events.map((event) => (
+                    <li key={event.id} className="flex min-w-0 items-baseline gap-2 text-sm">
+                      <AgentDot state={event.state} />
+                      <span className="shrink-0 text-[#0a0a0a]">{event.label}</span>
+                      {event.detail ? (
+                        <span className="min-w-0 truncate text-[#3f3f46]">{event.detail}</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {front.transcript ? (
                 <FocusMarkdown text={front.transcript} />
-              ) : (
+              ) : front.events.length === 0 ? (
                 <p className="text-sm text-[#3f3f46]">No output yet.</p>
-              )}
+              ) : null}
             </div>
             {onFollowUp ? (
               <form
