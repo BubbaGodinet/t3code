@@ -197,10 +197,18 @@ describe("company accounts", () => {
     expect(
       selectCompanyAccount(
         accounts as unknown as ServerProvider[],
-        { instanceId: personal, model: "claude-opus-4-6" },
+        {
+          instanceId: personal,
+          model: "claude-opus-4-6",
+          options: [{ id: "effort", value: "high" }],
+        },
         doordash,
       ),
-    ).toEqual({ instanceId: doordash, model: "claude-opus-4-6" });
+    ).toEqual({
+      instanceId: doordash,
+      model: "claude-opus-4-6",
+      options: [{ id: "effort", value: "high" }],
+    });
   });
 
   it("saves the company's account with the layout and reads it back after a restart", () => {

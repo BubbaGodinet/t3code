@@ -7,7 +7,13 @@ import {
   isMosaicInteracting,
 } from "./hoverActivation";
 
-const idle = { buttons: 0, interacting: false, overlayOpen: false, alreadyActive: false };
+const idle = {
+  buttons: 0,
+  interacting: false,
+  overlayOpen: false,
+  alreadyActive: false,
+  typing: false,
+};
 
 describe("canHoverActivate", () => {
   it("activates a resting pointer over an inactive pane", () => {
@@ -19,6 +25,7 @@ describe("canHoverActivate", () => {
     expect(canHoverActivate({ ...idle, interacting: true })).toBe(false);
     expect(canHoverActivate({ ...idle, overlayOpen: true })).toBe(false);
     expect(canHoverActivate({ ...idle, alreadyActive: true })).toBe(false);
+    expect(canHoverActivate({ ...idle, typing: true })).toBe(false);
   });
 });
 

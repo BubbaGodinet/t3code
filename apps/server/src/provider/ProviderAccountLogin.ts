@@ -47,6 +47,7 @@ import {
 } from "./claudeAccountDiscovery.ts";
 import {
   accountLoginTarget,
+  consoleTranscript,
   createAccountConfigDir,
   loginFailureLine,
   parseLoginOutput,
@@ -189,13 +190,15 @@ export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(fu
       readonly configDir: string;
       readonly instanceId: ProviderInstanceId;
       readonly instance: ProviderInstanceConfig;
+      readonly consoleLogin: boolean;
     },
   ) => {
     const driver = DRIVERS[input.driver];
+    const args = input.consoleLogin ? [...driver.args, "--console"] : driver.args;
     let signedIn = false;
     return Effect.gen(function* () {
       const env = { [driver.envVar]: input.configDir };
-      const spawnCommand = yield* resolveSpawnCommand(input.command, driver.args, {
+      const spawnCommand = yield* resolveSpawnCommand(input.command, args, {
         env,
         extendEnv: true,
       });
@@ -230,16 +233,28 @@ export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(fu
         Stream.runForEach((chunk) => {
           output = (output + chunk).slice(-OUTPUT_MAX_CHARS);
           const parsed = parseLoginOutput(output);
+          const transcript = consoleTranscript(output);
           return SubscriptionRef.update(flow.state, (state) => {
-            const loginUrl = state.loginUrl ?? parsed.loginUrl;
+            // Claude's browser page does not sign the account in. Keep that URL
+            // off the client and show the console text instead.
+            const loginUrl = input.consoleLogin ? null : (state.loginUrl ?? parsed.loginUrl);
             const userCode = state.userCode ?? parsed.userCode;
-            if (loginUrl === state.loginUrl && userCode === state.userCode) return state;
+            if (
+              loginUrl === state.loginUrl &&
+              userCode === state.userCode &&
+              transcript === state.transcript
+            ) {
+              return state;
+            }
             return {
               ...state,
               phase: "waiting" as const,
               loginUrl,
               userCode,
-              message: "Waiting for you to finish signing in.",
+              transcript,
+              message: input.consoleLogin
+                ? "Finish in the Claude console below. This does not open a browser page."
+                : "Waiting for you to finish signing in.",
             };
           });
         }),
@@ -278,6 +293,7 @@ export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(fu
                   phase: "succeeded" as const,
                   loginUrl: null,
                   userCode: null,
+                  transcript: state.transcript,
                   message: `Signed in. ${state.label} is now one of your ${driver.name} accounts.`,
                 }
               : {
@@ -287,6 +303,7 @@ export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(fu
                     : ("failed" as const),
                   loginUrl: null,
                   userCode: null,
+                  transcript: state.transcript,
                   message: Cause.hasInterruptsOnly(exit.cause)
                     ? "Sign-in cancelled."
                     : Option.match(Cause.findErrorOption(exit.cause), {
@@ -353,16 +370,19 @@ export const makeProviderAccountLogin = Effect.fn("makeProviderAccountLogin")(fu
         phase: "starting",
         loginUrl: null,
         userCode: null,
+        transcript: "",
         message: `Starting ${driver.name} sign-in.`,
       }),
       stdin: yield* Queue.unbounded<string>(),
       fiber: undefined,
     };
     flows.set(flowId, flow);
+    const consoleLogin = input.driver === "claudeAgent" && input.claudeLogin !== "web";
     flow.fiber = yield* runLogin(flow, {
       driver: input.driver,
       command: expandHomePath(customBinaryPath || driver.binary),
       configDir,
+      consoleLogin,
       instanceId: target.instanceId,
       instance: {
         driver: ProviderDriverKind.make(input.driver),

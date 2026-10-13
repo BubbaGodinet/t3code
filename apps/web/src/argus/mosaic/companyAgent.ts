@@ -3,7 +3,10 @@ import {
   type ModelSelection,
   type ProviderDriverKind,
   type ProviderInstanceId,
+  type ProviderOptionSelection,
+  type SelectProviderOptionDescriptor,
   type ServerProvider,
+  type ServerProviderModel,
 } from "@t3tools/contracts";
 
 import {
@@ -79,7 +82,13 @@ export function planCompanyAgentForThread(input: {
   if (next !== undefined && next.driver === currentDriver && sameResumeGroup) {
     candidate = companyAgent;
   } else if (current?.models.some((model) => model.slug === companyAgent.model)) {
-    candidate = { instanceId: currentInstanceId, model: companyAgent.model };
+    candidate = {
+      instanceId: currentInstanceId,
+      model: companyAgent.model,
+      ...(companyAgent.options && companyAgent.options.length > 0
+        ? { options: companyAgent.options }
+        : {}),
+    };
     keptProvider = true;
   }
   const currentLabel = providerLabel(current, currentDriver ?? String(currentInstanceId));
@@ -155,8 +164,58 @@ export function selectCompanyAccount(
 ): ModelSelection | null {
   const account = providers.find((provider) => provider.instanceId === instanceId);
   if (current && account?.models.some((model) => model.slug === current.model)) {
-    return { instanceId, model: current.model };
+    return {
+      instanceId,
+      model: current.model,
+      ...(current.options && current.options.length > 0 ? { options: current.options } : {}),
+    };
   }
   const model = getDefaultProviderInstanceModel(providers, instanceId);
   return model ? { instanceId, model } : null;
+}
+
+const COMPANY_OPTION_IDS = new Set([
+  "effort",
+  "reasoningEffort",
+  "reasoning",
+  "context",
+  "contextWindow",
+]);
+
+/** Context and effort selects the chosen model actually offers. */
+export function companyModelControls(
+  model: ServerProviderModel | undefined,
+): ReadonlyArray<SelectProviderOptionDescriptor> {
+  return (model?.capabilities?.optionDescriptors ?? []).flatMap((descriptor) =>
+    descriptor.type === "select" && COMPANY_OPTION_IDS.has(descriptor.id) ? [descriptor] : [],
+  );
+}
+
+export function companyOptionValue(
+  selection: ModelSelection,
+  descriptor: SelectProviderOptionDescriptor,
+): string {
+  const current = selection.options?.find((option) => option.id === descriptor.id);
+  if (
+    typeof current?.value === "string" &&
+    descriptor.options.some((option) => option.id === current.value)
+  ) {
+    return current.value;
+  }
+  return (
+    descriptor.options.find((option) => option.isDefault)?.id ?? descriptor.options[0]?.id ?? ""
+  );
+}
+
+/** Keeps the account and model, and records one context or effort choice. */
+export function withCompanyModelOption(
+  selection: ModelSelection,
+  id: string,
+  value: string,
+): ModelSelection {
+  const options: ProviderOptionSelection[] = [
+    ...(selection.options ?? []).filter((option) => option.id !== id),
+    { id, value },
+  ];
+  return { ...selection, options };
 }

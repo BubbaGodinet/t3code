@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { Component, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "../lib/utils";
 import {
@@ -16,6 +16,7 @@ import {
   prefersReducedMotion,
   runArgusModeTransition,
 } from "./argusModeTransition";
+import { AskArgusButton } from "./AskArgusButton";
 import { captureArgusWindow } from "./argusWindowShader";
 
 /**
@@ -27,9 +28,14 @@ export function ArgusModePillHost() {
   const current = useArgusMode();
   if (!current) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-40 flex h-[var(--workspace-topbar-height)] items-center justify-center">
-      <ArgusModeSwitcher current={current} className="pointer-events-auto" />
-    </div>
+    <>
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-40 flex h-[var(--workspace-topbar-height)] items-center justify-center">
+        <ArgusModeSwitcher current={current} className="pointer-events-auto" />
+      </div>
+      <AskBoundary>
+        <AskArgusButton />
+      </AskBoundary>
+    </>
   );
 }
 
@@ -38,6 +44,19 @@ export function ArgusModePillHost() {
  * the in-app Sanctuary space when nothing frames T3. Picking a side slides the
  * knob first, then the space being left is eaten away to reveal the other.
  */
+class AskBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) return null;
+    return this.props.children;
+  }
+}
+
 function ArgusModeSwitcher({ current, className }: { current: ArgusMode; className?: string }) {
   const currentHref = useLocation({ select: (location) => location.href });
   const navigate = useNavigate();

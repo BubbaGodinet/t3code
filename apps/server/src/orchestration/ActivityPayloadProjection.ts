@@ -425,6 +425,57 @@ function clipTaskPrompt(prompt: string): string {
   return `${line.slice(0, TASK_PROMPT_LIMIT - 1)}…`;
 }
 
+const AGENT_LOG_LIMIT = 12_000;
+
+/** Parent link so a child tool stays on its subagent instead of the main turn. */
+function projectAgentLink(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  const rawInput = asRecord(data.rawInput);
+  if (!rawInput) return undefined;
+  const linkedToolCallId = asTrimmedString(rawInput.linkedToolCallId);
+  const parentToolUseId = asTrimmedString(rawInput.parentToolUseId);
+  const agentId = asTrimmedString(rawInput.agentId);
+  const taskId = asTrimmedString(rawInput.taskId);
+  const subagentSessionId = asTrimmedString(rawInput.subagentSessionId);
+  if (!linkedToolCallId && !parentToolUseId && !agentId && !taskId) return undefined;
+  return {
+    ...(linkedToolCallId ? { linkedToolCallId } : {}),
+    ...(parentToolUseId ? { parentToolUseId } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(taskId ? { taskId } : {}),
+    ...(subagentSessionId ? { subagentSessionId } : {}),
+  };
+}
+
+function projectToolDetail(data: Record<string, unknown>): string | undefined {
+  const rawInput = asRecord(data.rawInput);
+  if (!rawInput) return undefined;
+  return (
+    asTrimmedString(rawInput.command) ??
+    asTrimmedString(rawInput.path) ??
+    asTrimmedString(rawInput.file_path) ??
+    asTrimmedString(rawInput.query) ??
+    asTrimmedString(rawInput.pattern) ??
+    undefined
+  );
+}
+
+/** Full enough for the subagent log. Only child tools and folded transcripts. */
+function projectAgentLog(data: Record<string, unknown>): string | undefined {
+  const rawInput = asRecord(data.rawInput);
+  const linked = asTrimmedString(rawInput?.linkedToolCallId);
+  const rawOutput = asRecord(data.rawOutput);
+  const transcript = asTrimmedString(rawOutput?.transcript);
+  if (!linked && !transcript) return undefined;
+  const text =
+    transcript ??
+    asTrimmedString(rawOutput?.content) ??
+    asTrimmedString(rawOutput?.stdout) ??
+    asTrimmedString(rawOutput?.result) ??
+    asTrimmedString(data.rawOutput);
+  if (!text) return undefined;
+  return text.length <= AGENT_LOG_LIMIT ? text : text.slice(text.length - AGENT_LOG_LIMIT);
+}
+
 /** The few Task fields the agent strip reads. The full prompt stays in the database. */
 function projectCursorTaskInput(
   data: Record<string, unknown>,
@@ -531,8 +582,17 @@ export function projectActivityPayload(
     projectedData.toolName = data.toolName;
   }
   const taskInput = projectCursorTaskInput(data);
-  if (taskInput) {
-    projectedData.rawInput = taskInput;
+  const agentLink = projectAgentLink(data);
+  if (taskInput || agentLink) {
+    projectedData.rawInput = { ...taskInput, ...agentLink };
+  }
+  const toolDetail = projectToolDetail(data);
+  if (toolDetail) {
+    projectedData.detail = toolDetail;
+  }
+  const agentLog = projectAgentLog(data);
+  if (agentLog) {
+    projectedData.agentLog = agentLog;
   }
 
   const rawOutput =

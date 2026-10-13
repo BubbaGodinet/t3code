@@ -1,0 +1,208 @@
+.argus-orb {
+  position: relative;
+  width: var(--size, 220px);
+  height: var(--size, 220px);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 50%;
+  --c1: color-mix(in srgb, var(--primary) 22%, white);
+  --c2: var(--primary);
+  --c3: color-mix(in srgb, var(--primary) 62%, black);
+  --c4: color-mix(in srgb, var(--primary) 28%, black);
+  cursor: pointer;
+}
+
+.argus-orb-glow,
+.argus-orb-ring,
+.argus-orb-body,
+.argus-orb-swirl,
+.argus-orb-sheen {
+  pointer-events: none;
+}
+
+.argus-orb-glow {
+  position: absolute;
+  inset: -35%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--c2) 0%, transparent 62%);
+  filter: blur(28px);
+  opacity: 0.35;
+  animation: argus-orb-breathe 6s ease-in-out infinite;
+}
+
+.argus-orb-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--c2);
+  opacity: 0;
+}
+
+.argus-orb-body {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(
+    circle at 32% 28%,
+    var(--c1) 0%,
+    var(--c2) 36%,
+    var(--c3) 76%,
+    var(--c4) 100%
+  );
+  box-shadow:
+    inset 0 -14px 32px rgb(0 0 0 / 0.38),
+    inset 0 10px 26px rgb(255 255 255 / 0.14);
+  animation: argus-orb-breathe 6s ease-in-out infinite;
+}
+
+.argus-orb-swirl {
+  position: absolute;
+  inset: -25%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 14%,
+    var(--c1) 24%,
+    transparent 38% 58%,
+    var(--c2) 70%,
+    transparent 84%
+  );
+  filter: blur(15px);
+  mix-blend-mode: screen;
+  opacity: 0.65;
+  animation: argus-orb-spin 16s linear infinite;
+}
+
+.argus-orb-swirl.b {
+  animation-direction: reverse;
+  animation-duration: 23s;
+  opacity: 0.4;
+}
+
+.argus-orb-sheen {
+  position: absolute;
+  left: 18%;
+  top: 9%;
+  width: 46%;
+  height: 30%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgb(255 255 255 / 0.55), transparent 70%);
+  filter: blur(6px);
+}
+
+.argus-orb[data-state="working"] .argus-orb-ring {
+  opacity: 1;
+  animation: argus-orb-ripple 1s ease-out infinite;
+}
+
+.argus-orb[data-state="working"] .argus-orb-swirl {
+  animation-duration: 1.1s;
+}
+
+.argus-orb[data-state="working"] .argus-orb-glow {
+  opacity: 0.85;
+  animation: argus-orb-pulse 0.7s ease-in-out infinite;
+}
+
+.argus-orb[data-state="connecting"] .argus-orb-swirl {
+  animation-duration: 2.2s;
+}
+
+.argus-orb[data-state="connecting"] .argus-orb-glow {
+  animation: argus-orb-pulse 1.2s ease-in-out infinite;
+}
+
+.argus-orb[data-state="listening"] .argus-orb-body {
+  animation-duration: 2.4s;
+}
+
+.argus-orb[data-state="listening"] .argus-orb-ring {
+  animation: argus-orb-ripple 2.4s ease-out infinite;
+}
+
+.argus-orb[data-state="speaking"] .argus-orb-body {
+  animation: argus-orb-talk 1.1s ease-in-out infinite;
+}
+
+.argus-orb[data-state="speaking"] .argus-orb-swirl {
+  animation-duration: 4s;
+}
+
+.argus-orb[data-state="speaking"] .argus-orb-swirl.b {
+  animation-duration: 6s;
+}
+
+.argus-orb[data-state="speaking"] .argus-orb-glow {
+  animation: argus-orb-pulse 0.9s ease-in-out infinite;
+  opacity: 0.7;
+}
+
+.argus-orb[data-state="muted"] {
+  filter: grayscale(1) brightness(0.6);
+}
+
+.argus-orb[data-state="muted"] .argus-orb-body,
+.argus-orb[data-state="muted"] .argus-orb-swirl,
+.argus-orb[data-state="muted"] .argus-orb-glow {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .argus-orb * {
+    animation: none !important;
+  }
+}
+
+@keyframes argus-orb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes argus-orb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+}
+
+@keyframes argus-orb-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes argus-orb-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+@keyframes argus-orb-talk {
+  0%,
+  100% {
+    border-radius: 50% 48% 52% 50% / 50% 52% 48% 50%;
+    transform: scale(1.02);
+  }
+  33% {
+    border-radius: 46% 54% 49% 51% / 54% 46% 53% 47%;
+    transform: scale(1.07);
+  }
+  66% {
+    border-radius: 53% 47% 51% 49% / 47% 53% 49% 51%;
+    transform: scale(1.04);
+  }
+}

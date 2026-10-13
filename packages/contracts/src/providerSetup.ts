@@ -74,9 +74,17 @@ export type ProviderInstallCancelInput = typeof ProviderInstallCancelInput.Type;
 export const ProviderAccountLoginDriver = Schema.Literals(["claudeAgent", "codex"]);
 export type ProviderAccountLoginDriver = typeof ProviderAccountLoginDriver.Type;
 
+export const ClaudeLoginMethod = Schema.Literals(["console", "web"]);
+export type ClaudeLoginMethod = typeof ClaudeLoginMethod.Type;
+
 export const ProviderAccountLoginStartInput = Schema.Struct({
   driver: ProviderAccountLoginDriver,
   label: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  /**
+   * Claude only. `console` runs `claude auth login --console` in the terminal.
+   * `web` opens the browser sign-in page. Omitted means console.
+   */
+  claudeLogin: Schema.optional(ClaudeLoginMethod),
 });
 export type ProviderAccountLoginStartInput = typeof ProviderAccountLoginStartInput.Type;
 
@@ -106,6 +114,11 @@ export const ProviderAccountLoginState = Schema.Struct({
   loginUrl: Schema.NullOr(Schema.String),
   userCode: Schema.NullOr(Schema.String),
   message: Schema.NullOr(Schema.String),
+  /**
+   * Recent CLI output for a console sign-in. Links and long tokens are removed
+   * before this leaves the server.
+   */
+  transcript: Schema.String,
 });
 export type ProviderAccountLoginState = typeof ProviderAccountLoginState.Type;
 

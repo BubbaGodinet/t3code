@@ -510,6 +510,9 @@ export const make = Effect.gen(function* () {
     flushMainWindowBounds = flushBoundsPersist;
 
     yield* previewManager.setMainWindow(window);
+    window.webContents.session.setPermissionRequestHandler((_contents, permission, callback) => {
+      callback(permission === "media" || permission === "microphone");
+    });
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||

@@ -89,6 +89,15 @@ export function parseLoginOutput(output: string): {
   return { loginUrl, userCode };
 }
 
+/** CLI text safe to show in the sign-in dialog. URLs and long tokens are removed. */
+export function consoleTranscript(output: string): string {
+  return stripTerminalEscapes(output)
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[A-Za-z0-9_\-.]{32,}/g, "[redacted]")
+    .trim()
+    .slice(-2_000);
+}
+
 /** The CLI's last message, safe to show: no links, no token-like strings. */
 export function loginFailureLine(output: string): string | null {
   const lines = stripTerminalEscapes(output)

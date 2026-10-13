@@ -9,15 +9,12 @@ shared provider settings.
 Use a separate Claude config directory for each account. This also works for named
 presets that need different Claude settings or a router connection.
 
-To skip the terminal, use **Add account** in **Settings > Providers**, pick Claude, and
-enter a label such as `Personal`. T3 Code creates `~/.claude_personal`, runs Claude's
-login there, and adds the instance when you finish signing in. If the sign-in page
-shows a code, paste it into the dialog.
+Use **Add account** in **Settings > Providers** and pick Claude.
 
-**Use an API key** on that same screen connects Claude with a key from
-[console.anthropic.com](https://console.anthropic.com) instead of a Claude.ai subscription.
-Usage is billed as API usage. The key is stored as a sensitive variable on that Claude
-instance, the same place **Settings > Providers** keeps provider variables.
+- **Claude console** creates `~/.claude_personal` and runs `claude auth login --console`.
+  Finish the prompts in the dialog. It does not open a browser page.
+- **Sign in on the web** runs `claude auth login` and opens Claude's sign-in page. Paste
+  any code the page shows back into the dialog.
 
 A Claude login already on this machine shows up as an account. T3 Code checks `~/.claude`,
 other `~/.claude_*` directories, and any Claude config directory already set on a provider.

@@ -81,6 +81,8 @@ describe("deriveChatAgents", () => {
       {
         id: "main",
         name: "claude-opus",
+        model: "claude-opus",
+        task: null,
         state: "working",
         detail: null,
         files: ["src/a.ts", "src/b.ts"],
@@ -99,8 +101,13 @@ describe("deriveChatAgents", () => {
       runningTurnId: null,
       agentPanelModel: deriveAgentPanelModel({
         agents: [
-          subagent({ id: "explorer", progress: "Reading routes\nmore" }),
-          subagent({ id: "reviewer", status: "completed", result: "LGTM" }),
+          subagent({ id: "explorer", title: "Explore routes", progress: "Reading routes\nmore" }),
+          subagent({
+            id: "reviewer",
+            title: "Review the change",
+            status: "completed",
+            result: "LGTM",
+          }),
         ],
       }),
       workLogEntries: [],
@@ -188,19 +195,229 @@ describe("deriveChatAgents", () => {
       "Per-environment web Sentry DSN",
       "Gather deadline reopen + notify",
     ]);
-    expect(working.map((agent) => agent.detail)).toEqual([
-      "Edit apps/mobile/src/sync.ts",
-      "Wire the DSN in infra/scripts/deploy-web.sh",
-      "Read apps/mobile/src/deadline.ts",
-    ]);
+    expect(working.map((agent) => agent.detail)).toEqual(["Running", "Running", "Running"]);
     expect(agents.find((agent) => agent.id === "main")?.state).toBe("working");
     expect(
       agents.some((agent) => agent.name === "Stop RN-X work" && agent.state === "working"),
     ).toBe(false);
     expect(agents.some((agent) => agent.id === "call-mcp")).toBe(false);
-    expect(agents.find((agent) => agent.id === "call-split")?.transcript).toContain(
-      "Edit apps/mobile/src/sync.ts",
+    expect(agents.find((agent) => agent.id === "call-split")?.transcript).toBe("");
+    expect(agents.find((agent) => agent.id === "call-split")?.task).toBe(
+      "Split cellular sync switches",
     );
+  });
+
+  it("keeps each child tool call on the subagent instead of one launch row", () => {
+    const agents = deriveChatAgents({
+      mainLabel: "claude-opus-5-5",
+      isWorking: true,
+      latestTurn: { turnId: turnOne, state: "running" },
+      runningTurnId: turnOne,
+      agentPanelModel: emptyAgentPanelModel(),
+      workLogEntries: [],
+      checkpoints: [],
+      activities: [
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:23:45.000Z",
+          payload: {
+            status: "completed",
+            title: "Task: Gather deadline reopen + notify",
+            data: {
+              toolCallId: "call-deadline",
+              rawInput: {
+                _toolName: "task",
+                description: "Gather deadline reopen + notify",
+                prompt: "You are working in the Tether monorepo (Expo app).",
+              },
+              rawOutput: { isBackground: true },
+            },
+          },
+        },
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:24:00.000Z",
+          payload: {
+            status: "completed",
+            title: "Read deadline.ts",
+            data: {
+              toolCallId: "read-1",
+              detail: "apps/mobile/src/deadline.ts",
+              agentLog: "export function reopen() {}",
+              rawInput: { linkedToolCallId: "call-deadline", path: "apps/mobile/src/deadline.ts" },
+            },
+          },
+        },
+        {
+          kind: "tool.updated",
+          createdAt: "2026-10-01T15:24:10.000Z",
+          payload: {
+            status: "in_progress",
+            title: "Subagent",
+            data: {
+              toolCallId: "call-deadline",
+              agentLog: "You are working in the Tether monorepo (Expo app).",
+              rawInput: { _toolName: "subagent", linkedToolCallId: "call-deadline" },
+            },
+          },
+        },
+      ],
+    });
+    const child = agents.find((agent) => agent.id === "call-deadline");
+    expect(child?.task).toBe("Gather deadline reopen + notify");
+    expect(child?.model).toBe("claude-opus-5-5");
+    expect(child?.transcript).toBe("");
+    expect(child?.events.map((event) => [event.label, event.detail, event.output])).toEqual([
+      ["Read deadline.ts", "apps/mobile/src/deadline.ts", "export function reopen() {}"],
+    ]);
+  });
+
+  it("hides code scraps and splits a folded subagent log into tool rows", () => {
+    const agents = deriveChatAgents({
+      mainLabel: "claude-opus-5-5",
+      isWorking: false,
+      latestTurn: { turnId: turnOne, state: "completed" },
+      runningTurnId: null,
+      agentPanelModel: deriveAgentPanelModel({
+        agents: [
+          subagent({ id: "scrap", title: "bject skipping.", status: "completed", result: "nope" }),
+          subagent({
+            id: "code",
+            title: "rtRankedPush({ appActive: false }),",
+            status: "completed",
+            result: "nope",
+          }),
+        ],
+      }),
+      workLogEntries: [],
+      checkpoints: [],
+      activities: [
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:23:45.000Z",
+          payload: {
+            status: "completed",
+            title: "Task: Gather deadline reopen + notify",
+            data: {
+              toolCallId: "call-deadline",
+              agentLog: [
+                "Read apps/mobile/src/deadline.ts",
+                "export function reopen() {}",
+                "Edit apps/mobile/src/notify.ts",
+                "added the push",
+              ].join("\n"),
+              rawInput: {
+                _toolName: "task",
+                description: "Gather deadline reopen + notify",
+                linkedToolCallId: "call-deadline",
+              },
+              rawOutput: { isBackground: true },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(agents.map((agent) => agent.task)).toEqual([null, "Gather deadline reopen + notify"]);
+    expect(
+      agents.find((agent) => agent.id === "call-deadline")?.events.map((event) => event.detail),
+    ).toEqual(["Read apps/mobile/src/deadline.ts", "Edit apps/mobile/src/notify.ts"]);
+  });
+
+  it("keeps the task name when later titles are shell commands", () => {
+    const agents = deriveChatAgents({
+      mainLabel: "claude-opus-5-5",
+      isWorking: true,
+      latestTurn: { turnId: turnOne, state: "running" },
+      runningTurnId: turnOne,
+      agentPanelModel: emptyAgentPanelModel(),
+      workLogEntries: [],
+      checkpoints: [],
+      activities: [
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:23:45.000Z",
+          payload: {
+            status: "completed",
+            title: "Task: Gather deadline reopen + notify",
+            data: {
+              toolCallId: "call-deadline",
+              rawInput: {
+                _toolName: "task",
+                description: "Gather deadline reopen + notify",
+                prompt: "Read the deadline flow",
+              },
+              rawOutput: { isBackground: true },
+            },
+          },
+        },
+        {
+          kind: "tool.updated",
+          createdAt: "2026-10-01T15:24:10.000Z",
+          payload: {
+            status: "in_progress",
+            title: "Task: `cd /Users/bubba/code/tether-1001 && git status`",
+            data: {
+              toolCallId: "call-deadline",
+              rawInput: { _toolName: "task" },
+            },
+          },
+        },
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:24:20.000Z",
+          payload: {
+            status: "completed",
+            title: "Task: `cd /Users/bubba/code/tether-1001 && git fetch`",
+            data: {
+              toolCallId: "call-shell",
+              rawInput: {
+                _toolName: "task",
+                description: "cd /Users/bubba/code/tether-1001 && git fetch",
+              },
+              rawOutput: { isBackground: true },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(agents.map((agent) => [agent.model, agent.task])).toEqual([
+      ["claude-opus-5-5", null],
+      ["claude-opus-5-5", "Gather deadline reopen + notify"],
+    ]);
+  });
+
+  it("does not list a live tool title as its own agent", () => {
+    const agents = deriveChatAgents({
+      mainLabel: "claude-opus-5-5",
+      isWorking: true,
+      latestTurn: { turnId: turnOne, state: "running" },
+      runningTurnId: turnOne,
+      agentPanelModel: deriveAgentPanelModel({
+        agents: [
+          subagent({
+            id: "child",
+            title: "Edit `/Users/bubba/code/tether/apps/mobile/App.tsx`",
+            model: "claude-opus-5-5",
+            progress:
+              "You are working in the Tether monorepo (Expo React Native app).\n\nGather deadline reopen + notify",
+          }),
+          subagent({
+            id: "shell",
+            title: "`cd /Users/bubba/code/tether-1001 && git status`",
+          }),
+        ],
+      }),
+      workLogEntries: [],
+      checkpoints: [],
+    });
+
+    expect(
+      agents
+        .filter((agent) => agent.id !== "main")
+        .map((agent) => [agent.id, agent.model, agent.task]),
+    ).toEqual([["child", "claude-opus-5-5", "Gather deadline reopen + notify"]]);
   });
 
   it("marks a background launch Done once the parent turn has finished", () => {
@@ -230,6 +447,57 @@ describe("deriveChatAgents", () => {
       ["Gather deadline reopen + notify", "done"],
     ]);
     expect(agents.filter((agent) => agent.state === "working")).toEqual([]);
+  });
+
+  it("does not mark an earlier turn's subagents running when the main agent starts again", () => {
+    const agents = deriveChatAgents({
+      mainLabel: "claude-opus-5-5",
+      isWorking: true,
+      latestTurn: { turnId: turnTwo, state: "running" },
+      runningTurnId: turnTwo,
+      agentPanelModel: emptyAgentPanelModel(),
+      workLogEntries: [],
+      checkpoints: [],
+      messages: [
+        {
+          role: "assistant",
+          turnId: turnOne,
+          text: [
+            "Three agents are running in parallel:",
+            "",
+            "- [Gather deadline reopen + notify](fd73c894-125f-4d01-b5cb-53c1f4bbf325)",
+          ].join("\n"),
+        },
+      ],
+      activities: [
+        {
+          kind: "tool.completed",
+          createdAt: "2026-10-01T15:23:45.000Z",
+          turnId: turnOne,
+          payload: {
+            status: "completed",
+            title: "Task: Gather deadline reopen + notify",
+            data: {
+              toolCallId: "call-deadline",
+              rawInput: {
+                _toolName: "task",
+                description: "Gather deadline reopen + notify",
+                prompt: "Read the deadline flow",
+              },
+              rawOutput: { isBackground: true },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(agents.find((agent) => agent.id === "main")?.state).toBe("working");
+    expect(agents.find((agent) => agent.task === "Gather deadline reopen + notify")?.state).toBe(
+      "done",
+    );
+    expect(agents.filter((agent) => agent.state === "working").map((agent) => agent.id)).toEqual([
+      "main",
+    ]);
   });
 
   it("hides untitled Subagent task failures and does not count settled tasks as running", () => {
@@ -434,6 +702,8 @@ describe("agent links", () => {
           {
             id: "fd73c894-125f-4d01-b5cb-53c1f4bbf325",
             name: "Gather deadline reopen + notify",
+            model: null,
+            task: "Gather deadline reopen + notify",
             state: "working",
             detail: null,
             files: [],
@@ -508,6 +778,43 @@ describe("chat outputs", () => {
     ]);
   });
 
+  it("skips a short subagent status and keeps a real question", () => {
+    const outputs = deriveChatOutputs({
+      ...base,
+      messages: [
+        assistant(
+          "m1",
+          turnOne,
+          "2026-01-01T00:00:02Z",
+          "Should I open the pull request against main, or leave it on the branch?",
+        ),
+      ],
+      unsettledTurnId: turnOne,
+      latestTurn: { turnId: turnOne, state: "running" },
+      agentPanelModel: deriveAgentPanelModel({
+        agents: [
+          subagent({
+            id: "status",
+            title: "Gather deadline reopen + notify",
+            status: "completed",
+            result: "I should start",
+            completedAt: "2026-01-01T00:01:00Z",
+          }),
+          subagent({
+            id: "prompt",
+            title: "Expo app",
+            status: "completed",
+            result: "You are working in the Tether monorepo (Expo app).",
+            completedAt: "2026-01-01T00:02:00Z",
+          }),
+        ],
+      }),
+      checkpoints: [],
+    });
+    expect(outputs.map((output) => output.id)).toEqual([`ask:${turnOne}`]);
+    expect(outputs[0]?.text).toContain("pull request");
+  });
+
   it("leaves a running turn out until it finishes", () => {
     const outputs = deriveChatOutputs({
       ...base,
@@ -539,7 +846,8 @@ describe("chat outputs", () => {
             id: "reviewer",
             title: "Reviewer",
             status: "completed",
-            result: "Full review report",
+            result:
+              "Full review report. The deadline reopen path now notifies the right team, and the web deploy takes the environment DSN.",
             completedAt: "2026-01-01T00:04:00Z",
           }),
         ],
@@ -550,7 +858,11 @@ describe("chat outputs", () => {
     const kept = mergeChatOutputs(mergeChatOutputs([], first), second);
     expect(kept.map((output) => [output.id, output.text, output.outcome])).toEqual([
       ["turn:turn-2", "Answer two", "done"],
-      ["agent:reviewer", "Full review report", "done"],
+      [
+        "agent:reviewer",
+        "Full review report. The deadline reopen path now notifies the right team, and the web deploy takes the environment DSN.",
+        "done",
+      ],
       ["turn:turn-1", "Answer one", "stopped"],
     ]);
 

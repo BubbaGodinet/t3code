@@ -14,6 +14,7 @@ import { DEV_PROXIED_PATH_PREFIXES } from "@t3tools/shared/devProxy";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
+import { argusVoicePlugin } from "./vite/argusVoice";
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -157,6 +158,7 @@ export default defineConfig(() => {
   return {
     assetsInclude: ["**/*.wasm"],
     plugins: [
+      argusVoicePlugin(),
       devCompressionPlugin(),
       thirdPartyLicensesPlugin({
         bundleName: "web",
@@ -244,16 +246,42 @@ export default defineConfig(() => {
             // Vite's HMR socket is matched separately and exactly (path "/"
             // plus a vite-hmr subprotocol), so the upgrade handlers don't
             // collide.
-            proxy: Object.fromEntries(
-              DEV_PROXIED_PATH_PREFIXES.map((prefix) => [
-                prefix,
-                {
-                  target: devProxyTarget,
-                  changeOrigin: true,
-                  ...(prefix === "/ws" || prefix === "/api" ? { ws: true } : {}),
+            proxy: {
+              ...Object.fromEntries(
+                DEV_PROXIED_PATH_PREFIXES.map((prefix) => [
+                  prefix,
+                  {
+                    target: devProxyTarget,
+                    changeOrigin: true,
+                    ...(prefix === "/ws" || prefix === "/api" ? { ws: true } : {}),
+                  },
+                ]),
+              ),
+              "/argus-assistant": {
+                target: "http://127.0.0.1:3100",
+                changeOrigin: true,
+                rewrite: (path: string) => path.replace(/^\/argus-assistant/, "") || "/",
+                configure: (proxy) => {
+                  proxy.on("proxyReq", (proxyReq, req) => {
+                    const origin = req.headers.origin ?? "";
+                    const referer = req.headers.referer ?? "";
+                    const foreign =
+                      origin.length > 0 &&
+                      origin !== "null" &&
+                      origin !== "t3code-dev://app" &&
+                      origin !== "http://127.0.0.1:5733" &&
+                      origin !== "http://localhost:5733";
+                    const desktopReferer =
+                      referer.startsWith("t3code-dev://app") ||
+                      referer.startsWith("http://127.0.0.1:5733") ||
+                      referer.startsWith("http://localhost:5733");
+                    // Electron's custom protocol often sends Origin: null. A
+                    // foreign page always sends its own origin, so that stays out.
+                    if (!foreign || desktopReferer) proxyReq.setHeader("x-argus-desktop", "1");
+                  });
                 },
-              ]),
-            ),
+              },
+            },
           }
         : {}),
       // Electron's BrowserWindow needs the HMR socket pinned to an explicit

@@ -35,6 +35,7 @@ import type { ThreadRouteTarget } from "../../threadRoutes";
 import { CompaniesDialog, useCompaniesDialog } from "./CompaniesDialog";
 import {
   HOVER_ACTIVATE_DELAY_MS,
+  isTypingInPane,
   beginMosaicInteraction,
   canHoverActivate,
   createHoverActivator,
@@ -339,6 +340,7 @@ function useHoverActivation() {
           interacting: isMosaicInteracting(),
           overlayOpen: isOverlayOpen(),
           alreadyActive: useMosaicStore.getState().activePaneId === paneId,
+          typing: isTypingInPane(),
         }),
       activate: (paneId) => activate(paneId),
     });

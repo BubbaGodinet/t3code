@@ -16,21 +16,22 @@ import { formatShortTimestamp } from "../../timestampFormat";
 import {
   OPEN_AGENT_EVENT,
   agentMatchingReference,
+  agentIdentity,
   chatOutputTitle,
   formatEditedFiles,
   outputRowPreview,
-  stepAgentStackIndex,
   type ChatAgentState,
   type ChatAgentStatus,
   type ChatOutput,
 } from "./chatAgents";
+import { AgentChatBoard } from "./AgentChatBoard";
 import { FocusMarkdown, SCAN_TITLE_CLASS } from "./FocusMarkdown";
 
 export type ChatSurfaceView = "transcript" | "outputs" | "docs";
 
 const STATE_LABEL: Record<ChatAgentState, string> = {
   working: "Running",
-  idle: "Idle",
+  idle: "Needs you",
   done: "Done",
   stopped: "Stopped",
   failed: "Failed",
@@ -43,10 +44,10 @@ function AgentDot({ state }: { state: ChatAgentState }) {
       aria-hidden
       className={cn(
         "size-2 shrink-0 rounded-full",
-        state === "working" && "bg-amber-500 ring-2 ring-amber-500/25",
-        (state === "done" || state === "idle") && "bg-muted-foreground/35",
-        state === "stopped" && "border border-muted-foreground/60",
-        state === "failed" && "bg-destructive",
+        state === "working" && "bg-blue-500 ring-2 ring-blue-500/25",
+        state === "idle" && "bg-yellow-400 ring-2 ring-yellow-400/25",
+        (state === "done" || state === "stopped") && "bg-emerald-500",
+        state === "failed" && "bg-red-500",
       )}
     />
   );
@@ -76,7 +77,10 @@ function AgentListRow({
           agent.state === "working" ? "text-foreground" : "text-foreground/75",
         )}
       >
-        {agent.name}
+        {agentIdentity(agent).title}
+        {agentIdentity(agent).model ? (
+          <span className="text-muted-foreground"> · {agentIdentity(agent).model}</span>
+        ) : null}
       </span>
       <span className="shrink-0 text-muted-foreground">{STATE_LABEL[agent.state]}</span>
     </button>
@@ -107,6 +111,11 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
   const [listOpen, setListOpen] = useState(false);
   const [stackFocusId, setStackFocusId] = useState<string | null>(null);
   const workingCount = agents.filter((agent) => agent.state === "working").length;
+  const listed = agents.filter((agent) => agent.state === "working" || agent.state === "idle");
+  const done = agents.filter((agent) => agent.state === "done" || agent.state === "stopped");
+  const failed = agents.filter((agent) => agent.state === "failed");
+  const [doneOpen, setDoneOpen] = useState(false);
+  const [failedOpen, setFailedOpen] = useState(false);
   const openStack = (agentId: string) => {
     setListOpen(false);
     setStackFocusId(agentId);
@@ -136,7 +145,7 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
         <div
           className={cn(
             "surface-glass pointer-events-auto flex min-w-0 flex-col rounded-lg border border-border/60 px-2 py-1 shadow-sm",
-            listOpen && "max-h-80 w-72 overflow-y-auto",
+            listOpen && "max-h-80 w-96 overflow-y-auto",
           )}
         >
           <button
@@ -155,15 +164,57 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
             </span>
             {listOpen ? <ChevronUpIcon className="size-3 shrink-0" /> : null}
           </button>
-          {listOpen
-            ? agents.map((agent) => (
+          {listOpen ? (
+            <>
+              {listed.map((agent) => (
                 <AgentListRow key={agent.id} agent={agent} onOpen={openStack} />
-              ))
-            : null}
+              ))}
+              {done.length > 0 ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent/70"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setDoneOpen((open) => !open);
+                  }}
+                >
+                  <AgentDot state="done" />
+                  <span className="min-w-0 flex-1 truncate">Done · {done.length}</span>
+                  <span>{doneOpen ? "Hide" : "Show"}</span>
+                </button>
+              ) : null}
+              {doneOpen
+                ? done.map((agent) => (
+                    <AgentListRow key={agent.id} agent={agent} onOpen={openStack} />
+                  ))
+                : null}
+              {failed.length > 0 ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent/70"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setFailedOpen((open) => !open);
+                  }}
+                >
+                  <AgentDot state="failed" />
+                  <span className="min-w-0 flex-1 truncate">Failed · {failed.length}</span>
+                  <span>{failedOpen ? "Hide" : "Show"}</span>
+                </button>
+              ) : null}
+              {failedOpen
+                ? failed.map((agent) => (
+                    <AgentListRow key={agent.id} agent={agent} onOpen={openStack} />
+                  ))
+                : null}
+            </>
+          ) : null}
         </div>
       ) : null}
       {stackFocusId !== null ? (
-        <AgentStack
+        <AgentChatBoard
           agents={agents}
           focusId={stackFocusId}
           onFocus={setStackFocusId}
@@ -201,180 +252,6 @@ export const ChatAgentsBar = memo(function ChatAgentsBar({
     </div>
   );
 });
-
-const PEEK_LIMIT = 4;
-const PEEK_X = 14;
-const PEEK_Y = 12;
-
-function AgentStack({
-  agents,
-  focusId,
-  onFocus,
-  onClose,
-  onFollowUp,
-}: {
-  agents: ReadonlyArray<ChatAgentStatus>;
-  focusId: string;
-  onFocus: (agentId: string) => void;
-  onClose: () => void;
-  onFollowUp?: (agent: ChatAgentStatus, text: string) => void;
-}) {
-  const [draft, setDraft] = useState("");
-  const index = Math.max(
-    0,
-    agents.findIndex((agent) => agent.id === focusId),
-  );
-  const count = agents.length;
-  const front = agents[index] ?? agents[0];
-  useEffect(() => {
-    if (!front) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isContextMenuOpen()) return;
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
-      const target = event.target;
-      if (
-        (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) &&
-        target.closest("[data-argus-agent-stack]")
-      ) {
-        return;
-      }
-      if (count < 2) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const next = stepAgentStackIndex(index, count, event.key === "ArrowRight" ? 1 : -1);
-      const agent = agents[next];
-      if (agent) onFocus(agent.id);
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [agents, count, front, index, onFocus]);
-  if (!front) return null;
-  const depths: Array<{ agent: ChatAgentStatus; depth: number }> = [];
-  const peekCount = Math.min(count - 1, PEEK_LIMIT);
-  for (let depth = peekCount; depth >= 1; depth -= 1) {
-    const agent = agents[stepAgentStackIndex(index, count, -depth)];
-    if (agent) depths.push({ agent, depth });
-  }
-  const delivery = front.id === "main" ? "Sends in this chat." : `Sends to ${front.name}.`;
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogPopup
-        {...composerFloatingLayerProps}
-        data-argus-focus-doc=""
-        bottomStickOnMobile={false}
-        showCloseButton
-        variant="media"
-        backdropClassName="z-[60] bg-black/60! backdrop-blur-md!"
-        viewportClassName="z-[60] px-4 py-8"
-        className="w-full max-w-4xl border-0 bg-transparent p-0 shadow-none"
-      >
-        <div
-          className="relative"
-          style={{ marginTop: peekCount * PEEK_Y, marginRight: peekCount * PEEK_X }}
-        >
-          {depths.map(({ agent, depth }) => (
-            <button
-              key={agent.id}
-              type="button"
-              aria-label={agent.name}
-              className="argus-focus-doc absolute inset-x-0 top-0 h-16 rounded-2xl border border-[#d4d4d8] shadow-md"
-              style={{
-                transform: `translate(${depth * PEEK_X}px, ${-depth * PEEK_Y}px)`,
-                zIndex: 10 - depth,
-              }}
-              onClick={() => onFocus(agent.id)}
-            />
-          ))}
-          <article
-            aria-label={front.name}
-            data-argus-agent-stack=""
-            className="argus-focus-doc relative z-10 flex max-h-[88vh] flex-col overflow-hidden rounded-2xl border border-[#d4d4d8] shadow-lg"
-            onClickCapture={(event) => {
-              const target = event.target;
-              if (!(target instanceof Element)) return;
-              const link = target.closest("[data-agent-ref]");
-              if (!(link instanceof HTMLElement)) return;
-              event.preventDefault();
-              event.stopPropagation();
-              const href = link.dataset.agentRef ?? "";
-              const label = link.textContent?.trim() ?? "";
-              const agent = agentMatchingReference(agents, { href, label });
-              if (agent) onFocus(agent.id);
-            }}
-          >
-            <header className="flex items-start gap-2 pe-12 pb-3 ps-6 pt-6">
-              <div className="min-w-0 flex-1">
-                <h2 className={SCAN_TITLE_CLASS}>{front.name}</h2>
-                <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-[#3f3f46]">
-                  <AgentDot state={front.state} />
-                  <span>{STATE_LABEL[front.state]}</span>
-                  {front.detail ? <span className="min-w-0 truncate">{front.detail}</span> : null}
-                  {count > 1 ? (
-                    <span className="ms-auto shrink-0">Left and right to switch</span>
-                  ) : null}
-                </div>
-              </div>
-            </header>
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-              {front.events.length > 0 ? (
-                <ul className="mb-4 flex flex-col gap-1.5">
-                  {front.events.map((event) => (
-                    <li key={event.id} className="flex min-w-0 items-baseline gap-2 text-sm">
-                      <AgentDot state={event.state} />
-                      <span className="shrink-0 text-[#0a0a0a]">{event.label}</span>
-                      {event.detail ? (
-                        <span className="min-w-0 truncate text-[#3f3f46]">{event.detail}</span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {front.transcript ? (
-                <FocusMarkdown text={front.transcript} />
-              ) : front.events.length === 0 ? (
-                <p className="text-sm text-[#3f3f46]">No output yet.</p>
-              ) : null}
-            </div>
-            {onFollowUp ? (
-              <form
-                className="flex flex-col gap-2 border-t border-[#d4d4d8] px-6 py-4"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const text = draft.trim();
-                  if (!text) return;
-                  onFollowUp(front, text);
-                  setDraft("");
-                }}
-              >
-                <p className="text-xs text-[#3f3f46]">{delivery}</p>
-                <textarea
-                  value={draft}
-                  rows={3}
-                  placeholder={`Message ${front.name}`}
-                  className="w-full resize-none rounded-lg border border-[#d4d4d8] bg-white px-3 py-2 text-sm text-[#0a0a0a] outline-none"
-                  onChange={(event) => setDraft(event.target.value)}
-                />
-                <button
-                  type="submit"
-                  className="self-end rounded-md bg-[#18181b] px-3 py-1.5 text-sm text-white disabled:opacity-40"
-                  disabled={draft.trim().length === 0}
-                >
-                  Send
-                </button>
-              </form>
-            ) : null}
-          </article>
-        </div>
-      </DialogPopup>
-    </Dialog>
-  );
-}
 
 /** Focus that belongs to a menu, dialog, or the composer keeps its own Escape. */
 function escapeBelongsElsewhere(): boolean {
@@ -448,7 +325,7 @@ export function ChatSurfacePanel({
   );
 }
 
-/** One output or doc in full: a light, high-contrast sheet over a darkened, blurred window. */
+/** One output or doc in full: a dark sheet over a darkened, blurred window. */
 export function ChatFocusDialog({
   title,
   meta,
@@ -473,7 +350,7 @@ export function ChatFocusDialog({
         bottomStickOnMobile={false}
         backdropClassName="z-[60] bg-black/60! backdrop-blur-md!"
         viewportClassName="z-[60] px-4 py-6"
-        className="argus-focus-doc max-h-[88vh] max-w-4xl"
+        className="argus-focus-doc max-h-[88vh] max-w-4xl bg-[#161615]! text-[#edede8]! shadow-none backdrop-blur-none!"
       >
         <DialogHeader className="gap-1 pe-12 pb-3">
           <DialogTitle className={SCAN_TITLE_CLASS}>{title}</DialogTitle>

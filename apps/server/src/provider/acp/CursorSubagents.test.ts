@@ -67,10 +67,26 @@ describe("Cursor child sessions", () => {
       sessionUpdate: "agent_message_chunk",
       content: { type: "text", text: "Reading deploy-web.sh" },
     });
+    expect(projected?.kind).toBe("result");
     expect(projected?.toolCallId).toBe("call-1");
-    expect(projected?.transcript).toBe("Reading deploy-web.sh");
+    expect(projected?.kind === "result" ? projected.transcript : "").toBe("Reading deploy-web.sh");
     expect(
       projectCursorChildUpdate(linked, "someone-else", { sessionUpdate: "agent_message_chunk" }),
     ).toBe(null);
+
+    const tool = projectCursorChildUpdate(linked, "child-1", {
+      sessionUpdate: "tool_call",
+      toolCallId: "read-1",
+      title: "Read deploy-web.sh",
+      status: "completed",
+      rawInput: { path: "infra/scripts/deploy-web.sh" },
+      rawOutput: { content: "DSN=..." },
+    });
+    expect(tool?.kind).toBe("tool");
+    if (tool?.kind === "tool") {
+      expect(tool.toolCallId).toBe("read-1");
+      expect(tool.rawInput.linkedToolCallId).toBe("call-1");
+      expect(tool.title).toBe("Read deploy-web.sh");
+    }
   });
 });

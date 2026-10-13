@@ -114,7 +114,7 @@ const COMPONENTS = {
  */
 export const FocusMarkdown = memo(function FocusMarkdown({ text }: { text: string }) {
   return (
-    <article className="md w-full min-w-0" data-theme="light">
+    <article className="md w-full min-w-0" data-theme="dark">
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={REHYPE_PLUGINS}

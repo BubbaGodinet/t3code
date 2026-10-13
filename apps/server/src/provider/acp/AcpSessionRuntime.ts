@@ -591,12 +591,32 @@ export const make = (
             );
             if (!projected) return;
             yield* Ref.set(cursorChildrenRef, projected.state);
+            if (projected.kind === "tool") {
+              yield* processSessionUpdate({
+                sessionId: startState.result.sessionId,
+                update: {
+                  sessionUpdate: "tool_call_update",
+                  toolCallId: projected.toolCallId,
+                  title: projected.title,
+                  status:
+                    projected.status === "completed" ||
+                    projected.status === "failed" ||
+                    projected.status === "pending" ||
+                    projected.status === "in_progress"
+                      ? projected.status
+                      : "in_progress",
+                  kind: "other",
+                  rawInput: projected.rawInput,
+                  ...(projected.rawOutput ? { rawOutput: projected.rawOutput } : {}),
+                },
+              });
+              return;
+            }
             yield* processSessionUpdate({
               sessionId: startState.result.sessionId,
               update: {
                 sessionUpdate: "tool_call_update",
                 toolCallId: projected.toolCallId,
-                title: projected.title,
                 status: "in_progress",
                 kind: "other",
                 rawInput: {

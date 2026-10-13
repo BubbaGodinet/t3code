@@ -46,10 +46,30 @@ export interface HoverActivationGuard {
   readonly interacting: boolean;
   readonly overlayOpen: boolean;
   readonly alreadyActive: boolean;
+  /** A composer or terminal has the keyboard, so the pointer must not steal the pane. */
+  readonly typing: boolean;
 }
 
 export function canHoverActivate(guard: HoverActivationGuard): boolean {
-  return guard.buttons === 0 && !guard.interacting && !guard.overlayOpen && !guard.alreadyActive;
+  return (
+    guard.buttons === 0 &&
+    !guard.interacting &&
+    !guard.overlayOpen &&
+    !guard.alreadyActive &&
+    !guard.typing
+  );
+}
+
+/** True while the user is in a chat composer or a pane terminal. */
+export function isTypingInPane(): boolean {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  if (!(active instanceof Element)) return false;
+  return (
+    active.closest(
+      '[data-testid="composer-editor"], [data-chat-composer-form="true"], .xterm-helper-textarea',
+    ) !== null
+  );
 }
 
 /**

@@ -18,8 +18,18 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import { makeProviderAccountLogin } from "./ProviderAccountLogin.ts";
 
 const FAKE_CLAUDE = `#!/bin/sh
-echo "Opening browser to sign in..."
-echo "If the browser didn't open, visit: https://claude.ai/oauth/authorize?state=test"
+console=0
+for arg in "$@"; do
+  if [ "$arg" = "--console" ]; then
+    console=1
+  fi
+done
+if [ "$console" -eq 1 ]; then
+  echo "Claude console. Finish in this terminal."
+else
+  echo "Opening browser to sign in..."
+  echo "If the browser didn't open, visit: https://claude.ai/oauth/authorize?state=test"
+fi
 printf "Paste code here if prompted > "
 read code
 if [ "$code" = "good-code" ]; then
@@ -79,12 +89,11 @@ it.layer(NodeServices.layer)("ProviderAccountLogin", (it) => {
           instanceId: "claudeAgent_doordash",
           configDir: "~/.claude_doordash",
         });
-        const waiting = yield* waitFor(
-          login.subscribe({ flowId: started.flowId }),
-          (state) => state.loginUrl !== null,
+        const waiting = yield* waitFor(login.subscribe({ flowId: started.flowId }), (state) =>
+          state.transcript.includes("Claude console"),
         );
         expect(waiting.phase).toBe("waiting");
-        expect(waiting.loginUrl).toBe("https://claude.ai/oauth/authorize?state=test");
+        expect(waiting.loginUrl).toBeNull();
 
         yield* login.submitCode({ flowId: started.flowId, code: "good-code" });
         const finished = yield* waitFor(login.subscribe({ flowId: started.flowId }), isFinished);
@@ -111,7 +120,9 @@ it.layer(NodeServices.layer)("ProviderAccountLogin", (it) => {
         const { login, saved, configDir, fileSystem } = yield* setup();
 
         const started = yield* login.start({ driver: "claudeAgent", label: "DoorDash" });
-        yield* waitFor(login.subscribe({ flowId: started.flowId }), (s) => s.loginUrl !== null);
+        yield* waitFor(login.subscribe({ flowId: started.flowId }), (s) =>
+          s.transcript.includes("Claude console"),
+        );
         yield* login.submitCode({ flowId: started.flowId, code: "wrong" });
         const finished = yield* waitFor(login.subscribe({ flowId: started.flowId }), isFinished);
 
@@ -129,7 +140,9 @@ it.layer(NodeServices.layer)("ProviderAccountLogin", (it) => {
         const { login, saved, configDir, fileSystem } = yield* setup();
 
         const started = yield* login.start({ driver: "claudeAgent", label: "DoorDash" });
-        yield* waitFor(login.subscribe({ flowId: started.flowId }), (s) => s.loginUrl !== null);
+        yield* waitFor(login.subscribe({ flowId: started.flowId }), (s) =>
+          s.transcript.includes("Claude console"),
+        );
         yield* login.cancel({ flowId: started.flowId });
         const finished = yield* waitFor(login.subscribe({ flowId: started.flowId }), isFinished);
 

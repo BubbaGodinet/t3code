@@ -16,6 +16,7 @@ export interface ChatAgentEvent {
   readonly id: string;
   readonly label: string;
   readonly detail: string | null;
+  readonly output: string | null;
   readonly state: ChatAgentState;
 }
 
@@ -23,6 +24,10 @@ export interface ChatAgentEvent {
 export interface ChatAgentStatus {
   readonly id: string;
   readonly name: string;
+  /** Model this agent runs as. Stays put while tool calls change. */
+  readonly model: string | null;
+  /** Assignment captured when the agent started. Not the live tool title. */
+  readonly task: string | null;
   readonly state: ChatAgentState;
   /** What a working agent is doing right now, when the provider says. */
   readonly detail: string | null;
@@ -31,6 +36,17 @@ export interface ChatAgentStatus {
   readonly transcript: string;
   /** Commands and tool calls for this agent, newest state of each call. */
   readonly events: ReadonlyArray<ChatAgentEvent>;
+}
+
+/** Work title on top, model underneath. The title does not follow the live tool. */
+export function agentIdentity(agent: Pick<ChatAgentStatus, "name" | "model" | "task">): {
+  readonly title: string;
+  readonly model: string | null;
+} {
+  const model = agent.model?.trim() || null;
+  const task = agent.task?.trim() || null;
+  const title = task || (model && agent.name !== model ? agent.name : null) || model || agent.name;
+  return { title, model: model && model !== title ? model : null };
 }
 
 /** A thread activity the agent reader can see. Tool rows carry Cursor's Task payload. */
@@ -172,10 +188,8 @@ function assistantTranscript(
 }
 
 function subagentTranscript(agent: RuntimeSubagent): string {
-  return [agent.progress, agent.result, agent.error]
-    .map((part) => part?.trim() ?? "")
-    .filter((part) => part.length > 0)
-    .join("\n\n");
+  const finished = agent.status === "failed" ? (agent.error ?? agent.result) : agent.result;
+  return withoutAssignment(finished);
 }
 
 interface CursorTaskAccum {
@@ -186,10 +200,51 @@ interface CursorTaskAccum {
   files: string[];
   state: ChatAgentState;
   detail: string | null;
+  turnId: string | null;
 }
 
 /** Cursor's placeholder when a Task call never parsed. Not a real agent name. */
 const GENERIC_AGENT_NAME = /^(?:subagent task|subagent|task)$/i;
+
+/** A shell or tool title. Those update on every call and are not a separate agent. */
+const TOOL_SHAPED_NAME =
+  /^(?:cd|ls|pwd|cat|rg|git|npm|pnpm|bun|yarn|echo|mkdir|rm|cp|mv|sed|awk|head|tail|grep|find|curl|ssh|bash|sh|edit|read|write|glob|search|run|shell|mcp|open)\b/i;
+
+const STATUS_NAME =
+  /^(?:i should|i'll|i will|let me|starting|reading|working(?: on)?|still|running|done|ok|you are working in)\b/i;
+
+/**
+ * A name that can stay on the card while the agent works.
+ * Fragments, code, and status lines are not tasks.
+ */
+export function stableAgentName(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const cleaned = value.replace(/[`*]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned || GENERIC_AGENT_NAME.test(cleaned)) return null;
+  if (cleaned.length < 8 || cleaned.length > 140) return null;
+  if (!/^[A-Z0-9]/.test(cleaned)) return null;
+  if (TOOL_SHAPED_NAME.test(cleaned) || STATUS_NAME.test(cleaned)) return null;
+  if (/[{}();=<>]/.test(cleaned) || /,\s*$/.test(cleaned)) return null;
+  if (cleaned.includes("&&") || cleaned.includes("||") || cleaned.includes("|")) return null;
+  if (cleaned.startsWith("/") || cleaned.startsWith("~")) return null;
+  if (/[a-z][A-Z]/.test(cleaned) && !/\s/.test(cleaned)) return null;
+  return cleaned;
+}
+
+function firstStableLine(text: string | null | undefined): string | null {
+  if (!text) return null;
+  for (const line of text.split("\n")) {
+    const stable = stableAgentName(line);
+    if (stable) return stable;
+  }
+  return null;
+}
+
+function preferStableName(current: string, incoming: string, id: string): string {
+  const currentStable = stableAgentName(current);
+  if (currentStable && current !== id) return currentStable;
+  return stableAgentName(incoming) ?? (current === id ? incoming : current);
+}
 
 function taskTitle(title: string | null, rawInput: Record<string, unknown> | null): string | null {
   const description =
@@ -236,11 +291,23 @@ function contentText(value: unknown): string | null {
 function outputText(rawOutput: Record<string, unknown> | null): string | null {
   if (!rawOutput) return null;
   return (
+    asText(rawOutput.agentLog) ??
     asText(rawOutput.transcript) ??
     asText(rawOutput.content) ??
     asText(rawOutput.result) ??
     contentText(rawOutput.content)
   );
+}
+
+/** Drops the "You are working in…" assignment. A later answer is kept. */
+function withoutAssignment(text: string | null | undefined): string {
+  const trimmed = text?.trim() ?? "";
+  if (!/^you are working in\b/i.test(trimmed)) return trimmed;
+  return trimmed.replace(/^you are working in[\s\S]*?(?:\n\n|$)/i, "").trim();
+}
+
+function isAssignmentPrompt(text: string | null | undefined): boolean {
+  return withoutAssignment(text).length === 0;
 }
 
 function locationPaths(data: Record<string, unknown> | null): string[] {
@@ -266,26 +333,22 @@ function clipLine(value: string): string {
 function workingDetail(task: CursorTaskAccum): string | null {
   const file = task.files.at(-1);
   if (file) return basenameOfPath(file);
-  const promptLine = task.prompt
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line.length > 0 && line !== task.name && !line.startsWith("#"));
-  if (promptLine) return clipLine(promptLine);
   const transcriptLine = task.transcript
     .split("\n")
     .map((line) => line.trim())
-    .find((line) => line.length > 0 && line !== task.name && line !== task.prompt);
+    .find((line) => line.length > 0 && line !== task.name && !isAssignmentPrompt(line));
   if (transcriptLine) return clipLine(transcriptLine);
   return "Running";
 }
 
 /**
- * A background Task stays Running only while its parent turn is still active,
- * or a newer in-progress event arrives after that turn completed. Once the
- * parent is finished and nothing newer is in flight, the child is Done.
+ * A background Task stays Running only while the turn that launched it is
+ * still active, or a newer in-progress event arrives after that turn
+ * completed. A later turn of the main agent does not wake finished children.
  */
 function backgroundTaskState(input: {
   readonly parentActive: boolean;
+  readonly launchedThisTurn: boolean;
   readonly parentCompletedAt: string | null;
   readonly background: boolean;
   readonly launchOnly: boolean;
@@ -297,7 +360,7 @@ function backgroundTaskState(input: {
 }): ChatAgentState {
   if (input.failed) return "failed";
   if (input.stopped) return "stopped";
-  if (input.childCompleted && !input.background && !input.launchOnly) return "done";
+  if (input.childCompleted) return "done";
   const open =
     input.background ||
     input.launchOnly ||
@@ -305,7 +368,7 @@ function backgroundTaskState(input: {
     input.status === "inProgress" ||
     input.status === "pending";
   if (!open) return "done";
-  if (input.parentActive) return "working";
+  if (input.parentActive && input.launchedThisTurn) return "working";
   const newerThanParent =
     input.parentCompletedAt !== null &&
     input.at !== null &&
@@ -321,7 +384,9 @@ function backgroundTaskState(input: {
 function cursorTaskAgents(
   activities: ReadonlyArray<ChatAgentActivity> | undefined,
   parentActive: boolean,
+  runningTurnId: string | null,
   parentCompletedAt: string | null,
+  parentModel: string,
 ): ChatAgentStatus[] {
   if (!activities || activities.length === 0) return [];
   const tasks = new Map<string, CursorTaskAccum>();
@@ -335,7 +400,7 @@ function cursorTaskAgents(
     const rawInput = asRecord(data?.rawInput);
     const rawOutput = asRecord(data?.rawOutput);
     const title = asText(payload?.title) ?? asText(data?.title);
-    const written = outputText(rawOutput) ?? contentText(data?.content);
+    const written = asText(data?.agentLog) ?? outputText(rawOutput) ?? contentText(data?.content);
     if (!isCursorAgentTool(rawInput, rawOutput, title, written)) continue;
     const rawId =
       asText(rawInput?.linkedToolCallId) ?? asText(data?.toolCallId) ?? asText(payload?.toolCallId);
@@ -349,12 +414,14 @@ function cursorTaskAgents(
       files: [],
       state: "working" as const,
       detail: null,
+      turnId: null as string | null,
     };
-    const name = taskTitle(title, rawInput);
-    if (name) task.name = name;
+    const name = stableAgentName(taskTitle(title, rawInput));
+    if (name && task.name === task.id) task.name = name;
     const prompt = asText(rawInput?.prompt);
     if (prompt && prompt.length > task.prompt.length) task.prompt = prompt;
-    if (written && written.length >= task.transcript.length) task.transcript = written;
+    const answer = withoutAssignment(written);
+    if (answer && answer.length >= task.transcript.length) task.transcript = answer;
     for (const path of locationPaths(data)) {
       if (!task.files.includes(path)) task.files.push(path);
     }
@@ -366,9 +433,13 @@ function cursorTaskAgents(
     const namedTask = title?.startsWith("Task:") ?? false;
     // No result text means the completion is the launch, not the child finishing.
     const launchOnly = namedTask && !written && !runningError && !errorText;
+    if (activity.turnId) task.turnId = activity.turnId;
     const at = activity.createdAt ?? null;
+    const launchedThisTurn =
+      runningTurnId === null || task.turnId === null || task.turnId === runningTurnId;
     task.state = backgroundTaskState({
       parentActive,
+      launchedThisTurn,
       parentCompletedAt,
       background,
       launchOnly,
@@ -385,14 +456,18 @@ function cursorTaskAgents(
     tasks.set(id, task);
   }
   return [...tasks.values()].flatMap((task) => {
-    if (task.name === task.id || GENERIC_AGENT_NAME.test(task.name)) return [];
-    const transcript = [task.prompt, task.transcript]
-      .filter((part, index, all) => part.length > 0 && all.indexOf(part) === index)
-      .join("\n\n");
+    const taskName =
+      (task.name !== task.id ? stableAgentName(task.name) : null) ??
+      firstStableLine(task.prompt) ??
+      firstStableLine(task.transcript);
+    if (!taskName) return [];
+    const transcript = isAssignmentPrompt(task.transcript) ? "" : task.transcript.trim();
     return [
       {
         id: task.id,
-        name: task.name,
+        name: taskName,
+        model: parentModel,
+        task: taskName,
         state: task.state,
         detail: task.state === "working" ? workingDetail(task) : null,
         files: task.files,
@@ -445,12 +520,15 @@ const AGENT_LINK = /\[([^\]]+)\]\(([^)\s]+)\)/;
  * says each change has its own agent. Web links are not agents.
  */
 function transcriptRunningAgents(
-  messages: ReadonlyArray<Pick<ChatMessage, "role" | "text">> | undefined,
+  messages: ReadonlyArray<Pick<ChatMessage, "role" | "text" | "turnId">> | undefined,
   parentActive: boolean,
+  runningTurnId: string | null,
+  parentModel: string,
 ): ChatAgentStatus[] {
   if (!messages || messages.length === 0) return [];
   const details = new Map<string, string>();
   let roster: Array<{ id: string; name: string; detail: string | null }> | null = null;
+  let rosterTurnId: string | null = null;
   for (const message of messages) {
     if (message.role !== "assistant") continue;
     const text = message.text;
@@ -481,19 +559,29 @@ function transcriptRunningAgents(
       }
     }
     roster = mentions;
+    rosterTurnId = message.turnId ?? null;
   }
   if (!roster) return [];
-  return roster.map((mention) => {
+  const rosterIsCurrent =
+    parentActive &&
+    (runningTurnId === null || rosterTurnId === null || rosterTurnId === runningTurnId);
+  return roster.flatMap((mention) => {
+    const task = stableAgentName(mention.name);
+    if (!task) return [];
     const detail = details.get(mention.name.toLowerCase()) ?? mention.detail;
-    return {
-      id: mention.id,
-      name: mention.name,
-      state: parentActive ? ("working" as const) : ("done" as const),
-      detail: parentActive && detail ? clipLine(detail) : null,
-      files: [],
-      transcript: detail ?? "",
-      events: [],
-    };
+    return [
+      {
+        id: mention.id,
+        name: task,
+        model: parentModel,
+        task,
+        state: rosterIsCurrent ? ("working" as const) : ("done" as const),
+        detail: rosterIsCurrent && detail ? clipLine(detail) : null,
+        files: [],
+        transcript: detail ?? "",
+        events: [],
+      },
+    ];
   });
 }
 
@@ -522,7 +610,9 @@ function absorbNamedAgents(
       (existing.state === "working" || existing.transcript.trim().length === 0);
     byId.set(existing.id, {
       ...existing,
-      name: existing.name === existing.id ? agent.name : existing.name,
+      name: preferStableName(existing.name, agent.name, existing.id),
+      model: existing.model ?? agent.model,
+      task: stableAgentName(existing.task) ?? stableAgentName(agent.task) ?? existing.task,
       state: stillRunning ? "working" : existing.state,
       detail: existing.detail ?? agent.detail,
       files: existing.files.length > 0 ? existing.files : agent.files,
@@ -538,7 +628,13 @@ function mergeAgent(current: ChatAgentStatus, incoming: ChatAgentStatus): ChatAg
   const working = current.state === "working" || incoming.state === "working";
   return {
     id: current.id,
-    name: current.name === current.id ? incoming.name : current.name,
+    name: preferStableName(current.name, incoming.name, current.id),
+    model: current.model ?? incoming.model,
+    task:
+      stableAgentName(current.task) ??
+      stableAgentName(incoming.task) ??
+      current.task ??
+      incoming.task,
     state: working ? "working" : current.state,
     detail: current.detail ?? incoming.detail,
     files: current.files.length > 0 ? current.files : incoming.files,
@@ -557,6 +653,14 @@ function parentTurnIsActive(input: {
 }): boolean {
   if (input.runningTurnId) return true;
   return input.isWorking && input.latestTurn?.state === "running";
+}
+
+/** The tool call's own id. A parent link must not collapse every child step into one row. */
+function ownToolId(activity: ChatAgentActivity): string | null {
+  const payload = asRecord(activity.payload);
+  const data = asRecord(payload?.data) ?? payload;
+  const id = asText(data?.toolCallId) ?? asText(payload?.toolCallId);
+  return id ? cursorAgentId(id) : null;
 }
 
 function activityToolId(activity: ChatAgentActivity): string | null {
@@ -600,6 +704,36 @@ function eventState(status: string | null): ChatAgentState {
   return "done";
 }
 
+const TOOL_HEAD =
+  /^(?:read|edit|write|grep|glob|search|bash|shell|run|task|delete|open|mcp|webfetch|websearch)\b/i;
+
+/** Turns one saved child transcript into a tool row per call. */
+function splitFoldedToolLog(text: string | null | undefined): ChatAgentEvent[] {
+  if (!text) return [];
+  const rows: Array<{ label: string; detail: string; output: string[] }> = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (TOOL_HEAD.test(line) || TOOL_SHAPED_NAME.test(line)) {
+      rows.push({
+        label: line.length > 80 ? `${line.slice(0, 79)}…` : line,
+        detail: line,
+        output: [],
+      });
+      continue;
+    }
+    rows.at(-1)?.output.push(line);
+  }
+  if (rows.length < 2) return [];
+  return rows.map((row, index) => ({
+    id: `log-${index}`,
+    label: row.label,
+    detail: row.detail,
+    output: row.output.join("\n") || null,
+    state: "done" as const,
+  }));
+}
+
 /** Latest state of each tool call, in the order the calls first appeared. */
 function toolEvents(
   activities: ReadonlyArray<ChatAgentActivity>,
@@ -617,6 +751,7 @@ function toolEvents(
     const data = asRecord(payload?.data) ?? payload;
     const rawInput = asRecord(data?.rawInput);
     const id =
+      ownToolId(activity) ??
       activityToolId(activity) ??
       `${activity.createdAt ?? ""}:${asText(payload?.title) ?? activity.summary ?? "tool"}`;
     if (!byTool.has(id)) order.push(id);
@@ -627,10 +762,12 @@ function toolEvents(
       asText(payload?.detail) ??
       asText(data?.detail);
     const status = asText(payload?.status) ?? asText(data?.status);
+    const rawOutput = asRecord(data?.rawOutput);
     byTool.set(id, {
       id,
       label,
       detail: command,
+      output: asText(data?.agentLog) ?? outputText(rawOutput) ?? contentText(data?.content),
       state: eventState(status),
     });
   }
@@ -654,11 +791,19 @@ function withLiveEvents(
             const rawInput = asRecord(data?.rawInput);
             const rawOutput = asRecord(data?.rawOutput);
             const title = asText(payload?.title) ?? asText(data?.title);
-            const written = outputText(rawOutput) ?? contentText(data?.content);
-            return !isCursorAgentTool(rawInput, rawOutput, title, written);
+            const written =
+              asText(data?.agentLog) ?? outputText(rawOutput) ?? contentText(data?.content);
+            const linked = asText(rawInput?.linkedToolCallId) ?? asText(rawInput?.parentToolUseId);
+            return !linked && !isCursorAgentTool(rawInput, rawOutput, title, written);
           })
         : toolEvents(rows, (activity) => activityBelongsToAgent(activity, agent.id));
-    return events.length > 0 ? { ...agent, events } : agent;
+    const steps = events.filter((event) => event.id !== agent.id);
+    let shown = steps.length > 0 ? steps : events;
+    if (agent.id !== "main" && shown.length <= 1) {
+      const split = splitFoldedToolLog(shown[0]?.output ?? agent.transcript);
+      if (split.length > 1) shown = split;
+    }
+    return shown.length > 0 ? { ...agent, events: shown } : agent;
   });
 }
 
@@ -691,6 +836,8 @@ export function deriveChatAgents(
     agents.push({
       id: "main",
       name: input.mainLabel,
+      model: input.mainLabel,
+      task: null,
       state: input.isWorking ? "working" : settledState,
       detail: null,
       files: turnId === null ? [] : turnFiles(input, turnId).map((file) => file.path),
@@ -704,13 +851,26 @@ export function deriveChatAgents(
   for (const agent of agents) byId.set(agent.id, agent);
   for (const agent of reportedSubagents(input.agentPanelModel)) {
     const state = subagentState(agent.status);
+    const task =
+      stableAgentName(agent.title) ??
+      stableAgentName(agent.role) ??
+      firstStableLine(agent.progress) ??
+      firstStableLine(agent.result);
+    if (!task) continue;
     const row: ChatAgentStatus = {
       id: agent.id,
-      name: agent.title,
+      name: task ?? agent.model ?? input.mainLabel,
+      model: agent.model ?? input.mainLabel,
+      task,
       state,
       detail:
         state === "working"
-          ? ((agent.progress?.split("\n")[0]?.trim() || agent.lastToolName) ?? null)
+          ? (agent.lastToolName ??
+            agent.progress
+              ?.split("\n")
+              .map((line) => line.trim())
+              .find((line) => line.length > 0 && !isAssignmentPrompt(line)) ??
+            null)
           : null,
       files: [],
       transcript: subagentTranscript(agent),
@@ -719,7 +879,13 @@ export function deriveChatAgents(
     const existing = byId.get(row.id);
     byId.set(row.id, existing ? mergeAgent(existing, row) : row);
   }
-  for (const agent of cursorTaskAgents(input.activities, parentActive, parentCompletedAt)) {
+  for (const agent of cursorTaskAgents(
+    input.activities,
+    parentActive,
+    input.runningTurnId,
+    parentCompletedAt,
+    input.mainLabel,
+  )) {
     const existing = byId.get(agent.id);
     byId.set(
       agent.id,
@@ -732,7 +898,11 @@ export function deriveChatAgents(
         : agent,
     );
   }
-  absorbNamedAgents(byId, transcriptRunningAgents(input.messages, parentActive), parentActive);
+  absorbNamedAgents(
+    byId,
+    transcriptRunningAgents(input.messages, parentActive, input.runningTurnId, input.mainLabel),
+    parentActive,
+  );
   const settled = settleChildrenAfterParent(
     [...byId.values()],
     input.activities,
@@ -900,6 +1070,7 @@ export function deriveChatOutputs(
     if (turn.texts.length === 0 && files.length === 0) continue;
     const latestState = input.latestTurn?.turnId === turnId ? input.latestTurn.state : null;
     const text = turn.texts.join("\n\n");
+    if (files.length === 0 && isStatusFragment(text)) continue;
     outputs.push({
       id: `turn:${turnId}`,
       kind: "turn",
@@ -913,12 +1084,38 @@ export function deriveChatOutputs(
     });
   }
 
+  if (input.unsettledTurnId) {
+    const asking = input.messages.filter(
+      (message) =>
+        message.role === "assistant" &&
+        message.turnId === input.unsettledTurnId &&
+        isUserQuestion(message.text),
+    );
+    const latestAsk = asking.at(-1);
+    if (latestAsk) {
+      const text = latestAsk.text.trim();
+      outputs.push({
+        id: `ask:${input.unsettledTurnId}`,
+        kind: "turn",
+        turnId: input.unsettledTurnId,
+        title: chatOutputTitle({ text, title: "", files: [] }),
+        text,
+        files: [],
+        outcome: "done",
+        completedAt: latestAsk.updatedAt,
+      });
+    }
+  }
+
   for (const agent of reportedSubagents(input.agentPanelModel)) {
     const state = subagentState(agent.status);
-    const text = (
+    const finished = (
       state === "failed" ? (agent.error ?? agent.result) : (agent.result ?? agent.error)
     )?.trim();
-    if (state === "working" || !text) continue;
+    const question = state === "working" || state === "idle" ? agent.progress?.trim() : null;
+    const text =
+      withoutAssignment(finished) || (question && isUserQuestion(question) ? question : "");
+    if (!text || !isKeptSubagentOutput(text)) continue;
     outputs.push({
       id: `agent:${agent.id}`,
       kind: "subagent",
@@ -935,6 +1132,33 @@ export function deriveChatOutputs(
     });
   }
   return outputs.toSorted(compareNewestFirst);
+}
+
+const STATUS_FRAGMENT =
+  /^(?:i should|i'll|i will|let me|starting|reading|working|still|running|done|ok)\b/i;
+
+function isStatusFragment(text: string): boolean {
+  const plain = plainAnswer(text);
+  return plain.length > 0 && plain.length < 80 && STATUS_FRAGMENT.test(plain) && !/\?/.test(plain);
+}
+
+/** A question to the user, not a status line. */
+function isUserQuestion(text: string): boolean {
+  const plain = plainAnswer(text);
+  return plain.length >= 20 && /\?/.test(plain) && !STATUS_FRAGMENT.test(plain);
+}
+
+/**
+ * Subagent output cards are the ask or the finished report.
+ * Short progress ("I should start") and the assignment prompt are not cards.
+ */
+function isKeptSubagentOutput(text: string): boolean {
+  const plain = plainAnswer(text);
+  if (!plain || isAssignmentPrompt(plain)) return false;
+  if (isUserQuestion(text)) return true;
+  if (firstAtxHeading(text) && plain.length >= 40) return true;
+  if (plain.length < 80 && STATUS_FRAGMENT.test(plain)) return false;
+  return plain.length >= 80;
 }
 
 function compareNewestFirst(left: ChatOutput, right: ChatOutput): number {

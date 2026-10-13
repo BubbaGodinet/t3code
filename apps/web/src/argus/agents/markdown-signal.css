@@ -955,7 +955,6 @@
   color: oklch(0.97 0.004 85);
 }
 
-.dark .argus-focus-doc .argus-scan-title,
 .argus-focus-doc .argus-scan-title {
-  color: oklch(0.17 0.008 75);
+  color: #edede8;
 }

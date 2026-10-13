@@ -279,6 +279,7 @@ export function resolveMacBundleInfoPlistStrings(executableName) {
     CFBundleIdentifier: APP_BUNDLE_ID,
     CFBundleExecutable: executableName,
     CFBundleIconFile: "icon.icns",
+    NSMicrophoneUsageDescription: "ARGUS uses the microphone when you talk with the assistant.",
     NSScreenCaptureUsageDescription:
       "ARGUS captures the active window when you use the snapshot shortcut.",
     NSDocumentsFolderUsageDescription: "ARGUS reads project files you open in the desktop app.",

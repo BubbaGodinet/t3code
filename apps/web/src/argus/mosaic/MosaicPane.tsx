@@ -17,6 +17,8 @@ import {
   memo,
   useCallback,
   useMemo,
+  useRef,
+  useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -49,6 +51,48 @@ import { useMosaicActions } from "./useMosaicActions";
 
 function tint(color: string, percent: number): string {
   return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+}
+
+type PaneAgentStatus = "running" | "needs-you" | "failed";
+
+const STATUS_WASH: Record<PaneAgentStatus, string> = {
+  running: "oklch(0.7 0.12 255)",
+  "needs-you": "oklch(0.84 0.12 95)",
+  failed: "oklch(0.68 0.14 25)",
+};
+
+/** Blue while the agent works, yellow when it needs you, red when it failed. */
+function paneAgentStatus(
+  shell: {
+    readonly hasPendingApprovals: boolean;
+    readonly hasPendingUserInput: boolean;
+    readonly latestTurn: { readonly state: string } | null;
+    readonly session: { readonly status: string } | null;
+    readonly backgroundLiveness?: "working" | "monitoring" | null;
+  } | null,
+): PaneAgentStatus | null {
+  if (!shell) return null;
+  if (shell.session?.status === "error" || shell.latestTurn?.state === "error") return "failed";
+  if (shell.hasPendingUserInput || shell.hasPendingApprovals) return "needs-you";
+  if (
+    shell.session?.status === "running" ||
+    shell.session?.status === "starting" ||
+    shell.latestTurn?.state === "running" ||
+    shell.backgroundLiveness === "working"
+  ) {
+    return "running";
+  }
+  return null;
+}
+
+function composerIsTyping(root: HTMLElement): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof Element) || !root.contains(active)) return false;
+  const form = active.closest("[data-chat-composer-form='true']");
+  if (!(form instanceof HTMLElement) || !root.contains(form)) return false;
+  const editor = form.querySelector("[data-testid='composer-editor']");
+  const text = editor?.textContent?.replace(/[\u200b\u00a0]/g, " ").trim() ?? "";
+  return text.length > 0;
 }
 
 function CompanyMenu({ pane, company }: { pane: MosaicPane; company: MosaicCompany | null }) {
@@ -267,6 +311,13 @@ export const MosaicPaneView = memo(function MosaicPaneView({
     [active, navigate, openTarget, paneId, setPaneTarget],
   );
   const paneContext = useMemo(() => ({ active, inMosaic: true }), [active]);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [composerTyping, setComposerTyping] = useState(false);
+  const syncComposerTyping = useCallback(() => {
+    const root = contentRef.current;
+    if (!root) return;
+    setComposerTyping(composerIsTyping(root));
+  }, []);
 
   if (!pane) return null;
 
@@ -295,6 +346,8 @@ export const MosaicPaneView = memo(function MosaicPaneView({
     pane.kind === "chat"
       ? (threadShell?.modelSelection.model ?? company?.modelSelection?.model ?? null)
       : null;
+  const agentStatus = pane.kind === "chat" ? paneAgentStatus(threadShell) : null;
+  const showStatusWash = agentStatus !== null && !composerTyping;
 
   return (
     <div
@@ -380,8 +433,14 @@ export const MosaicPaneView = memo(function MosaicPaneView({
       </div>
       {/* Layout containment scopes ChatView's fixed-position header controls to this pane. */}
       <div
+        ref={contentRef}
         className="relative min-h-0 flex-1 [contain:layout_paint]"
         onPointerDownCapture={() => focusPane(pane.id)}
+        onFocus={() => syncComposerTyping()}
+        onBlur={() => {
+          window.requestAnimationFrame(syncComposerTyping);
+        }}
+        onInput={() => syncComposerTyping()}
       >
         <ChatPaneContext value={paneContext}>
           {pane.kind === "chat" ? (
@@ -400,6 +459,18 @@ export const MosaicPaneView = memo(function MosaicPaneView({
             <TerminalPanePicker pane={pane} />
           )}
         </ChatPaneContext>
+        {showStatusWash && agentStatus ? (
+          <div
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-56",
+              agentStatus === "running" && "argus-pane-status-pulse",
+            )}
+            style={{
+              background: `linear-gradient(to top, color-mix(in srgb, ${STATUS_WASH[agentStatus]} 38%, transparent) 0%, color-mix(in srgb, ${STATUS_WASH[agentStatus]} 38%, transparent) 18%, transparent 100%)`,
+            }}
+          />
+        ) : null}
       </div>
     </div>
   );

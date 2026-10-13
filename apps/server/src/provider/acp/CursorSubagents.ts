@@ -48,6 +48,18 @@ export function absorbCursorChildLink(
   return { ...state, ids, toolCallIdBySession };
 }
 
+function toolContentText(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const parts: string[] = [];
+  for (const entry of value) {
+    const record = asRecord(entry);
+    const nested = asRecord(record?.content);
+    const text = asText(nested?.text) ?? asText(record?.text);
+    if (text) parts.push(text);
+  }
+  return parts.length > 0 ? parts.join("\n") : null;
+}
+
 function chunkText(update: Record<string, unknown>): string | null {
   const sessionUpdate = update.sessionUpdate;
   if (sessionUpdate === "agent_message_chunk" || sessionUpdate === "agent_thought_chunk") {
@@ -63,14 +75,28 @@ function chunkText(update: Record<string, unknown>): string | null {
   return null;
 }
 
-export interface ProjectedCursorChild {
-  readonly state: CursorChildSessions;
-  readonly toolCallId: string;
-  readonly title: string;
-  readonly transcript: string;
-}
+export type ProjectedCursorChild =
+  | {
+      readonly kind: "result";
+      readonly state: CursorChildSessions;
+      readonly toolCallId: string;
+      readonly transcript: string;
+    }
+  | {
+      readonly kind: "tool";
+      readonly state: CursorChildSessions;
+      readonly parentToolCallId: string;
+      readonly toolCallId: string;
+      readonly title: string;
+      readonly status: string;
+      readonly rawInput: Record<string, unknown>;
+      readonly rawOutput: Record<string, unknown> | null;
+    };
 
-/** Folds one child-session update into the launch tool's running transcript. */
+/**
+ * A child tool call stays its own row, linked to the launch.
+ * Message text is the result, not another copy of the tool log.
+ */
 export function projectCursorChildUpdate(
   state: CursorChildSessions,
   childSessionId: string,
@@ -79,21 +105,47 @@ export function projectCursorChildUpdate(
   if (!state.ids.has(childSessionId)) return null;
   const record = asRecord(update);
   if (!record) return null;
+  const parentToolCallId = state.toolCallIdBySession.get(childSessionId) ?? childSessionId;
+  const sessionUpdate = record.sessionUpdate;
+  if (sessionUpdate === "tool_call" || sessionUpdate === "tool_call_update") {
+    const title = asText(record.title) ?? "Tool";
+    const explicit = asText(record.toolCallId);
+    const toolCallId =
+      explicit && explicit !== parentToolCallId ? explicit : `${parentToolCallId}:${title}`;
+    const rawInput = asRecord(record.rawInput) ?? {};
+    const rawOutput = asRecord(record.rawOutput);
+    const contentText = toolContentText(record.content);
+    return {
+      kind: "tool",
+      state,
+      parentToolCallId,
+      toolCallId,
+      title,
+      status: asText(record.status) ?? "in_progress",
+      rawInput: {
+        ...rawInput,
+        linkedToolCallId: parentToolCallId,
+        parentToolUseId: parentToolCallId,
+      },
+      rawOutput: rawOutput ?? (contentText ? { content: contentText } : null),
+    };
+  }
+  if (sessionUpdate !== "agent_message_chunk" && sessionUpdate !== "agent_thought_chunk") {
+    return null;
+  }
   const delta = chunkText(record);
   if (!delta) return null;
-  const toolCallId = state.toolCallIdBySession.get(childSessionId) ?? childSessionId;
-  const previous = state.transcriptByTool.get(toolCallId) ?? "";
+  const previous = state.transcriptByTool.get(parentToolCallId) ?? "";
   let transcript = previous.length > 0 ? `${previous}\n${delta}` : delta;
   if (transcript.length > TRANSCRIPT_LIMIT) {
     transcript = transcript.slice(transcript.length - TRANSCRIPT_LIMIT);
   }
   const transcriptByTool = new Map(state.transcriptByTool);
-  transcriptByTool.set(toolCallId, transcript);
-  const title = asText(record.title) ?? "Subagent";
+  transcriptByTool.set(parentToolCallId, transcript);
   return {
+    kind: "result",
     state: { ...state, transcriptByTool },
-    toolCallId,
-    title,
+    toolCallId: parentToolCallId,
     transcript,
   };
 }

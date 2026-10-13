@@ -1,0 +1,38 @@
+/* Agent grid and focus view. Tokens from the handoff, dark only. */
+.argus-agent-chat {
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --bg: #0d0d0c;
+  --panel: #161615;
+  --sunk: #1d1d1b;
+  --ink: #edede8;
+  --ink2: #b0b0a9;
+  --ink3: #7a7a73;
+  --line: #2a2a27;
+  --red: oklch(0.74 0.14 25);
+  --redbg: oklch(0.24 0.04 25);
+  --redline: oklch(0.36 0.08 25);
+  --green: oklch(0.74 0.14 150);
+  --greenbg: oklch(0.24 0.04 150);
+  --greenline: oklch(0.36 0.08 150);
+  --blue: oklch(0.74 0.14 255);
+  --bluebg: oklch(0.24 0.04 255);
+  --blueline: oklch(0.36 0.08 255);
+  --amber: oklch(0.86 0.16 95);
+  --amberbg: oklch(0.28 0.05 95);
+  --amberline: oklch(0.45 0.09 95);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.argus-agent-chat button,
+.argus-agent-chat textarea,
+.argus-agent-chat input {
+  font: inherit;
+  color: inherit;
+}
+
+.argus-agent-chat [aria-label="Close"] {
+  color: var(--ink2);
+}

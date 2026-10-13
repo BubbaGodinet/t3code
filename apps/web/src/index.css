@@ -2279,30 +2279,48 @@ code {
   margin: 0;
 }
 
-/* The Argus focus modal (an output or a doc) is an opaque light sheet with
-   near-black type in every theme. The contrast tokens are resolved on the
-   root, so they are restated here rather than derived from --foreground. */
+/* Docs and agent windows use the agent-chat dark sheet, not the app canvas. */
 .argus-focus-doc {
-  --background: #ffffff;
-  --popover: #ffffff;
-  --card: #ffffff;
-  --muted: #f4f4f5;
-  --secondary: #f4f4f5;
-  --accent: #f4f4f5;
-  --code-background: #f4f4f5;
-  --code-foreground: #18181b;
-  --info-foreground: #1d4ed8;
-  --contrast-foreground: #0a0a0a;
-  --contrast-popover-foreground: #0a0a0a;
-  --contrast-card-foreground: #0a0a0a;
-  --contrast-accent-foreground: #0a0a0a;
-  --contrast-secondary-foreground: #18181b;
-  --contrast-muted-foreground: #3f3f46;
-  --contrast-border: #d4d4d8;
-  --contrast-input: #e4e4e7;
-  color-scheme: light;
-  background: #ffffff;
-  color: #0a0a0a;
+  --background: #161615;
+  --popover: #161615;
+  --card: #161615;
+  --muted: #1d1d1b;
+  --secondary: #1d1d1b;
+  --accent: #2a2a27;
+  --code-background: #1d1d1b;
+  --code-foreground: #edede8;
+  --info-foreground: oklch(0.74 0.14 255);
+  --contrast-foreground: #edede8;
+  --contrast-popover-foreground: #edede8;
+  --contrast-card-foreground: #edede8;
+  --contrast-accent-foreground: #edede8;
+  --contrast-secondary-foreground: #b0b0a9;
+  --contrast-muted-foreground: #7a7a73;
+  --contrast-border: #2a2a27;
+  --contrast-input: #2a2a27;
+  color-scheme: dark;
+  background: #161615;
+  color: #edede8;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+@keyframes argus-pane-status-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.argus-pane-status-pulse {
+  animation: argus-pane-status-pulse 3.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .argus-pane-status-pulse {
+    animation: none;
+  }
 }

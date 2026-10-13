@@ -10,7 +10,7 @@ import type {
   ServerProvider,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { FolderOpenIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, FolderOpenIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 
@@ -27,6 +27,7 @@ import {
 import { Input } from "../../components/ui/input";
 import { stackedThreadToast, toastManager } from "../../components/ui/toast";
 import { isLoopbackHostname } from "../../environments/primary";
+import { cn } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
 import {
   findProjectByPath,
@@ -44,9 +45,12 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import {
   companyAccountEntries,
   companyAccountLabel,
+  companyModelControls,
+  companyOptionValue,
   driverLabel,
   preferredCompanyAccount,
   selectCompanyAccount,
+  withCompanyModelOption,
 } from "./companyAgent";
 import { COMPANY_COLOR_PALETTE, useMosaicStore, type MosaicCompany } from "./mosaicStore";
 
@@ -200,7 +204,13 @@ function CompanyRepositoryPathForm(props: {
   );
 }
 
-function CompanyRow({ company }: { company: MosaicCompany }) {
+function CompanyRow({
+  company,
+  startOpen = false,
+}: {
+  company: MosaicCompany;
+  startOpen?: boolean;
+}) {
   const upsertCompany = useMosaicStore((state) => state.upsertCompany);
   const removeCompany = useMosaicStore((state) => state.removeCompany);
   const projects = useProjects();
@@ -209,6 +219,7 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
     ? (serverConfigs.get(company.projectRef.environmentId)?.providers ?? [])
     : [];
   const [addingAccount, setAddingAccount] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const accountEntries = companyAccountEntries(providers);
   const drivers = [...new Set(accountEntries.map((entry) => entry.driverKind))];
   const currentAccount = accountEntries.find(
@@ -247,13 +258,21 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
       style={{ borderColor: company.color }}
     >
       <div className="flex items-center gap-2">
-        <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: company.color }} />
-        <Input
-          aria-label="Company name"
-          value={company.name}
-          onChange={(event) => update({ name: event.target.value })}
-          placeholder="Company name"
-        />
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span
+            className="size-3 shrink-0 rounded-full"
+            style={{ backgroundColor: company.color }}
+          />
+          <span className="min-w-0 flex-1 truncate font-medium">{company.name || "Untitled"}</span>
+          <ChevronDownIcon
+            className={cn("size-4 shrink-0 text-muted-foreground", open && "rotate-180")}
+          />
+        </button>
         <Button
           aria-label={`Remove ${company.name}`}
           size="icon-xs"
@@ -263,148 +282,257 @@ function CompanyRow({ company }: { company: MosaicCompany }) {
           <Trash2Icon />
         </Button>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {COMPANY_COLOR_PALETTE.map((color) => (
-          <button
-            key={color}
-            type="button"
-            aria-label={`Color ${color}`}
-            aria-pressed={company.color === color}
-            className="size-5 rounded-full ring-offset-2 ring-offset-background aria-pressed:ring-2 aria-pressed:ring-foreground"
-            style={{ backgroundColor: color }}
-            onClick={() => update({ color })}
+      {open ? (
+        <>
+          <Input
+            aria-label="Company name"
+            value={company.name}
+            onChange={(event) => update({ name: event.target.value })}
+            placeholder="Company name"
           />
-        ))}
-        <input
-          type="color"
-          aria-label="Custom color"
-          className="size-6 cursor-pointer rounded border-0 bg-transparent p-0"
-          value={company.color}
-          onChange={(event) => update({ color: event.target.value })}
-        />
-      </div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="w-12 shrink-0">Repo</span>
-        <select
-          aria-label="Repository"
-          className={SELECT_CLASS}
-          value={company.projectRef ? scopedProjectKey(company.projectRef) : ""}
-          onChange={(event) => {
-            const project = projects.find(
-              (entry) =>
-                scopedProjectKey(scopeProjectRef(entry.environmentId, entry.id)) ===
-                event.target.value,
-            );
-            update({
-              projectRef: project ? scopeProjectRef(project.environmentId, project.id) : null,
-              modelSelection: null,
-            });
-          }}
-        >
-          <option value="">No repository</option>
-          {projects.map((project) => {
-            const key = scopedProjectKey(scopeProjectRef(project.environmentId, project.id));
-            return (
-              <option key={key} value={key}>
-                {project.title} — {project.workspaceRoot}
-              </option>
-            );
-          })}
-        </select>
-      </div>
-      <CompanyRepositoryPathForm
-        onAssign={(projectRef) => {
-          const latest = useMosaicStore
-            .getState()
-            .companies.find((entry) => entry.id === company.id);
-          if (latest) upsertCompany({ ...latest, projectRef, modelSelection: null });
-        }}
-      />
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="w-12 shrink-0">Agent</span>
-        <select
-          aria-label="Agent"
-          className={SELECT_CLASS}
-          disabled={company.projectRef === null}
-          value={currentDriver ?? ""}
-          onChange={(event) => {
-            const driver = event.target.value as ProviderDriverKind;
-            const account = driver ? preferredCompanyAccount(accountEntries, driver) : undefined;
-            update({
-              modelSelection: account
-                ? selectCompanyAccount(providers, null, account.instanceId)
-                : null,
-            });
-          }}
-        >
-          <option value="">Project default</option>
-          {currentDriver && !drivers.includes(currentDriver) ? (
-            <option value={currentDriver}>{driverLabel(currentDriver)} (unavailable)</option>
-          ) : null}
-          {drivers.map((driver) => (
-            <option key={driver} value={driver}>
-              {driverLabel(driver)}
-            </option>
-          ))}
-        </select>
-        {currentDriver === null && company.projectRef !== null ? addAccountButton : null}
-      </div>
-      {currentDriver ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="w-12 shrink-0">Account</span>
-          <select
-            aria-label="Account"
-            className={SELECT_CLASS}
-            value={company.modelSelection?.instanceId ?? ""}
-            onChange={(event) =>
-              update({
-                modelSelection: selectCompanyAccount(
-                  providers,
-                  company.modelSelection,
-                  event.target.value as ProviderInstanceId,
-                ),
-              })
-            }
-          >
-            {company.modelSelection && !currentAccount ? (
-              <option value={company.modelSelection.instanceId}>
-                {company.modelSelection.instanceId} (not configured)
-              </option>
-            ) : null}
-            {driverAccounts.map((entry) => (
-              <option key={entry.instanceId} value={entry.instanceId}>
-                {companyAccountLabel(entry)}
-              </option>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {COMPANY_COLOR_PALETTE.map((color) => (
+              <button
+                key={color}
+                type="button"
+                aria-label={`Color ${color}`}
+                aria-pressed={company.color === color}
+                className="size-5 rounded-full ring-offset-2 ring-offset-background aria-pressed:ring-2 aria-pressed:ring-foreground"
+                style={{ backgroundColor: color }}
+                onClick={() => update({ color })}
+              />
             ))}
-          </select>
-          {addAccountButton}
-        </div>
-      ) : null}
-      {currentDriver && driverAccounts.length < 2 ? (
-        <p className="ps-14 text-xs text-muted-foreground">
-          Only one {driverLabel(currentDriver)} account is signed in. Use Add account to sign in
-          another.
-        </p>
-      ) : null}
-      {addingAccount && company.projectRef ? (
-        <AddAccountDialog
-          environmentId={company.projectRef.environmentId}
-          initialDriver={currentDriver === "codex" ? "codex" : "claudeAgent"}
-          onOpenChange={setAddingAccount}
-          onAdded={selectAddedAccount}
-        />
+            <input
+              type="color"
+              aria-label="Custom color"
+              className="size-6 cursor-pointer rounded border-0 bg-transparent p-0"
+              value={company.color}
+              onChange={(event) => update({ color: event.target.value })}
+            />
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="w-12 shrink-0">Repo</span>
+            <select
+              aria-label="Repository"
+              className={SELECT_CLASS}
+              value={company.projectRef ? scopedProjectKey(company.projectRef) : ""}
+              onChange={(event) => {
+                const project = projects.find(
+                  (entry) =>
+                    scopedProjectKey(scopeProjectRef(entry.environmentId, entry.id)) ===
+                    event.target.value,
+                );
+                update({
+                  projectRef: project ? scopeProjectRef(project.environmentId, project.id) : null,
+                  modelSelection: null,
+                });
+              }}
+            >
+              <option value="">No repository</option>
+              {projects.map((project) => {
+                const key = scopedProjectKey(scopeProjectRef(project.environmentId, project.id));
+                return (
+                  <option key={key} value={key}>
+                    {project.title} — {project.workspaceRoot}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <CompanyRepositoryPathForm
+            onAssign={(projectRef) => {
+              const latest = useMosaicStore
+                .getState()
+                .companies.find((entry) => entry.id === company.id);
+              if (latest) upsertCompany({ ...latest, projectRef, modelSelection: null });
+            }}
+          />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="w-12 shrink-0">Agent</span>
+            <select
+              aria-label="Agent"
+              className={SELECT_CLASS}
+              disabled={company.projectRef === null}
+              value={currentDriver ?? ""}
+              onChange={(event) => {
+                const driver = event.target.value as ProviderDriverKind;
+                const account = driver
+                  ? preferredCompanyAccount(accountEntries, driver)
+                  : undefined;
+                update({
+                  modelSelection: account
+                    ? selectCompanyAccount(providers, null, account.instanceId)
+                    : null,
+                });
+              }}
+            >
+              <option value="">Project default</option>
+              {currentDriver && !drivers.includes(currentDriver) ? (
+                <option value={currentDriver}>{driverLabel(currentDriver)} (unavailable)</option>
+              ) : null}
+              {drivers.map((driver) => (
+                <option key={driver} value={driver}>
+                  {driverLabel(driver)}
+                </option>
+              ))}
+            </select>
+            {currentDriver === null && company.projectRef !== null ? addAccountButton : null}
+          </div>
+          {currentDriver ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="w-12 shrink-0">Account</span>
+              <select
+                aria-label="Account"
+                className={SELECT_CLASS}
+                value={company.modelSelection?.instanceId ?? ""}
+                onChange={(event) =>
+                  update({
+                    modelSelection: selectCompanyAccount(
+                      providers,
+                      company.modelSelection,
+                      event.target.value as ProviderInstanceId,
+                    ),
+                  })
+                }
+              >
+                {company.modelSelection && !currentAccount ? (
+                  <option value={company.modelSelection.instanceId}>
+                    {company.modelSelection.instanceId} (not configured)
+                  </option>
+                ) : null}
+                {driverAccounts.map((entry) => (
+                  <option key={entry.instanceId} value={entry.instanceId}>
+                    {companyAccountLabel(entry)}
+                  </option>
+                ))}
+              </select>
+              {addAccountButton}
+            </div>
+          ) : null}
+          {company.modelSelection ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="w-12 shrink-0">Model</span>
+              <select
+                aria-label="Model"
+                className={SELECT_CLASS}
+                value={company.modelSelection.model}
+                onChange={(event) => {
+                  const current = company.modelSelection;
+                  if (!current) return;
+                  const account = providers.find(
+                    (provider) => provider.instanceId === current.instanceId,
+                  );
+                  const nextModel = account?.models.find(
+                    (model) => model.slug === event.target.value,
+                  );
+                  const allowed = new Set(
+                    companyModelControls(nextModel).map((descriptor) => descriptor.id),
+                  );
+                  const options = (current.options ?? []).filter((option) =>
+                    allowed.has(option.id),
+                  );
+                  update({
+                    modelSelection: {
+                      instanceId: current.instanceId,
+                      model: event.target.value,
+                      ...(options.length > 0 ? { options } : {}),
+                    },
+                  });
+                }}
+              >
+                {(() => {
+                  const account = providers.find(
+                    (provider) => provider.instanceId === company.modelSelection?.instanceId,
+                  );
+                  const models = (account?.models ?? []).filter(
+                    (model) => !model.isLegacy || model.slug === company.modelSelection?.model,
+                  );
+                  const known = models.some(
+                    (model) => model.slug === company.modelSelection?.model,
+                  );
+                  return (
+                    <>
+                      {!known ? (
+                        <option value={company.modelSelection.model}>
+                          {company.modelSelection.model} (not listed)
+                        </option>
+                      ) : null}
+                      {models.map((model) => (
+                        <option key={model.slug} value={model.slug}>
+                          {model.name}
+                          {model.isDefault ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </>
+                  );
+                })()}
+              </select>
+            </div>
+          ) : null}
+          {company.modelSelection
+            ? companyModelControls(
+                providers
+                  .find((provider) => provider.instanceId === company.modelSelection?.instanceId)
+                  ?.models.find((model) => model.slug === company.modelSelection?.model),
+              ).map((descriptor) => (
+                <div
+                  key={descriptor.id}
+                  className="flex items-center gap-2 text-xs text-muted-foreground"
+                >
+                  <span className="w-16 shrink-0">{descriptor.label}</span>
+                  <select
+                    aria-label={descriptor.label}
+                    className={SELECT_CLASS}
+                    value={companyOptionValue(company.modelSelection!, descriptor)}
+                    onChange={(event) => {
+                      const current = company.modelSelection;
+                      if (!current) return;
+                      update({
+                        modelSelection: withCompanyModelOption(
+                          current,
+                          descriptor.id,
+                          event.target.value,
+                        ),
+                      });
+                    }}
+                  >
+                    {descriptor.options.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))
+            : null}
+          {currentDriver && driverAccounts.length < 2 ? (
+            <p className="ps-14 text-xs text-muted-foreground">
+              Only one {driverLabel(currentDriver)} account is signed in. Use Add account to sign in
+              another.
+            </p>
+          ) : null}
+          {addingAccount && company.projectRef ? (
+            <AddAccountDialog
+              environmentId={company.projectRef.environmentId}
+              initialDriver={currentDriver === "codex" ? "codex" : "claudeAgent"}
+              onOpenChange={setAddingAccount}
+              onAdded={selectAddedAccount}
+            />
+          ) : null}
+        </>
       ) : null}
     </div>
   );
 }
 
-/** Add, rename, recolor, and bind companies to a repository, agent, and provider account. */
+/** Add, rename, recolor, and bind companies to a repository, agent, account, and model. */
 export function CompaniesDialog() {
   const open = useCompaniesDialog((state) => state.open);
   const setOpen = useCompaniesDialog((state) => state.setOpen);
   const companies = useMosaicStore((state) => state.companies);
   const upsertCompany = useMosaicStore((state) => state.upsertCompany);
   const [draftName, setDraftName] = useState("");
+  const [freshId, setFreshId] = useState<string | null>(null);
   const discoverAccounts = useAtomCommand(serverEnvironment.discoverProviderAccounts, {
     reportFailure: false,
     reportDefect: false,
@@ -434,13 +562,15 @@ export function CompaniesDialog() {
   const addCompany = () => {
     const name = draftName.trim();
     if (!name) return;
+    const id = randomUUID();
     upsertCompany({
-      id: randomUUID(),
+      id,
       name,
       color: COMPANY_COLOR_PALETTE[companies.length % COMPANY_COLOR_PALETTE.length]!,
       projectRef: null,
       modelSelection: null,
     });
+    setFreshId(id);
     setDraftName("");
   };
 
@@ -474,7 +604,7 @@ export function CompaniesDialog() {
             </Button>
           </form>
           {companies.map((company) => (
-            <CompanyRow key={company.id} company={company} />
+            <CompanyRow key={company.id} company={company} startOpen={company.id === freshId} />
           ))}
         </DialogPanel>
       </DialogPopup>
